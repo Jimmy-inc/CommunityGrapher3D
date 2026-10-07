@@ -1,0 +1,3365 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CommunityGrapher3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=STIX+Two+Text:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<style>
+:root{
+  --panel:#f4f5f8; --canvas:#fbfbfd; --ink:#161a24; --muted:#5f677a; --line:#dfe3eb;
+  --focus:#e9edf7; --accent:#2c5ce6; --accent-ink:#ffffff; --err:#c23b2e;
+  --chip-cart:#e6e8ee; --chip-cart-ink:#3a4150;
+  --chip-cyl:#dcf1ec; --chip-cyl-ink:#0f6b58;
+  --chip-sph:#e7e3fb; --chip-sph-ink:#4b37b8;
+  --chip-mix:#fbecd9; --chip-mix-ink:#8a4b0c;
+  --grid:#d9dde6; --axis:#6b7385; --label:#4a5163;
+  --field:#ffffff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --panel:#12151c; --canvas:#0b0d12; --ink:#e7eaf1; --muted:#8e97aa; --line:#252a36;
+    --focus:#1a2030; --accent:#7f9dff; --accent-ink:#0b0d12; --err:#ff8a7a;
+    --chip-cart:#222733; --chip-cart-ink:#c3c9d6;
+    --chip-cyl:#123029; --chip-cyl-ink:#7fdcc3;
+    --chip-sph:#241f45; --chip-sph-ink:#b9adff;
+    --chip-mix:#34261a; --chip-mix-ink:#f2b774;
+    --grid:#1e2330; --axis:#6c7488; --label:#9aa3b6;
+    --field:#171b24;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --panel:#12151c; --canvas:#0b0d12; --ink:#e7eaf1; --muted:#8e97aa; --line:#252a36;
+  --focus:#1a2030; --accent:#7f9dff; --accent-ink:#0b0d12; --err:#ff8a7a;
+  --chip-cart:#222733; --chip-cart-ink:#c3c9d6;
+  --chip-cyl:#123029; --chip-cyl-ink:#7fdcc3;
+  --chip-sph:#241f45; --chip-sph-ink:#b9adff;
+  --chip-mix:#34261a; --chip-mix-ink:#f2b774;
+  --grid:#1e2330; --axis:#6c7488; --label:#9aa3b6;
+  --field:#171b24;
+}
+html,body{height:100%}
+body{margin:0;background:var(--panel);color:var(--ink);font:14px/1.45 "Schibsted Grotesk",system-ui,-apple-system,sans-serif;overflow:hidden}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;grid-template-columns:minmax(320px,410px) 1fr}
+.panel{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);background:var(--panel)}
+.stage{position:relative;min-width:0;min-height:0;background:var(--canvas)}
+#view{position:absolute;inset:0}
+#view canvas{display:block;touch-action:none}
+
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:14px 16px 10px}
+.mark{font-family:"Instrument Serif",Georgia,serif;font-size:30px;line-height:1;letter-spacing:-.01em}
+.mark i{color:var(--accent)}
+.collapse{align-self:center;flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--muted);font-size:16px;line-height:1;padding:0}
+.collapse:hover,.expand:hover{border-color:var(--accent);color:var(--ink)}
+.expand{position:absolute;top:calc(12px + env(safe-area-inset-top, 0px));left:16px;z-index:2;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);padding:6px 11px;font-size:13px;font-weight:500}
+.app.collapsed{grid-template-columns:1fr}
+.app.collapsed .panel{display:none}
+
+.keys{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px}
+.keys button{min-width:34px;height:30px;padding:0 8px;border:1px solid var(--line);border-radius:7px;background:var(--field);font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.keys button:hover{border-color:var(--accent)}
+
+.rows{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--line)}
+.rows{cursor:text}
+.row{cursor:auto}
+.rows::after{content:"Click empty space to add an expression";display:block;padding:14px 16px 14px 48px;color:var(--muted);opacity:.55;font-size:12.5px}
+.rows:hover::after{opacity:.9}
+.row{display:grid;grid-template-columns:22px 1fr 26px;gap:10px;padding:11px 12px 11px 16px;border-bottom:1px solid var(--line);align-items:start}
+.row:focus-within{background:var(--focus)}
+.swatch{width:16px;height:16px;margin-top:7px;border-radius:50%;border:2px solid var(--c);background:var(--c);padding:0}
+.row.off .swatch{background:transparent}
+.row.nodraw .swatch{opacity:.25}
+.rbody{min-width:0;display:flex;flex-direction:column;gap:5px}
+/* MathQuill v0.10.1 (MPL-2.0, mathquill.com) — stylesheet inlined */
+.mq-editable-field {
+  display: -moz-inline-box;
+  display: inline-block;
+}
+.mq-editable-field .mq-cursor {
+  border-left: 1px solid black;
+  margin-left: -1px;
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  display: -moz-inline-box;
+  display: inline-block;
+}
+.mq-editable-field .mq-cursor.mq-blink {
+  visibility: hidden;
+}
+.mq-editable-field,
+.mq-math-mode .mq-editable-field {
+  border: 1px solid gray;
+}
+.mq-editable-field.mq-focused,
+.mq-math-mode .mq-editable-field.mq-focused {
+  -webkit-box-shadow: #8bd 0 0 1px 2px, inset #6ae 0 0 2px 0;
+  -moz-box-shadow: #8bd 0 0 1px 2px, inset #6ae 0 0 2px 0;
+  box-shadow: #8bd 0 0 1px 2px, inset #6ae 0 0 2px 0;
+  border-color: #709AC0;
+  border-radius: 1px;
+}
+.mq-math-mode .mq-editable-field {
+  margin: 1px;
+}
+.mq-editable-field .mq-latex-command-input {
+  color: inherit;
+  font-family: "Courier New", monospace;
+  border: 1px solid gray;
+  padding-right: 1px;
+  margin-right: 1px;
+  margin-left: 2px;
+}
+.mq-editable-field .mq-latex-command-input.mq-empty {
+  background: transparent;
+}
+.mq-editable-field .mq-latex-command-input.mq-hasCursor {
+  border-color: ActiveBorder;
+}
+.mq-editable-field.mq-empty:after,
+.mq-editable-field.mq-text-mode:after,
+.mq-math-mode .mq-empty:after {
+  visibility: hidden;
+  content: 'c';
+}
+.mq-editable-field .mq-cursor:only-child:after,
+.mq-editable-field .mq-textarea + .mq-cursor:last-child:after {
+  visibility: hidden;
+  content: 'c';
+}
+.mq-editable-field .mq-text-mode .mq-cursor:only-child:after {
+  content: '';
+}
+.mq-editable-field.mq-text-mode {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.mq-root-block,
+.mq-math-mode .mq-root-block {
+  display: -moz-inline-box;
+  display: inline-block;
+  width: 100%;
+  padding: 2px;
+  -webkit-box-sizing: border-box;
+  -moz-box-sizing: border-box;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.mq-math-mode {
+  font-variant: normal;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 115%;
+  line-height: 1;
+  display: -moz-inline-box;
+  display: inline-block;
+}
+.mq-math-mode .mq-non-leaf,
+.mq-math-mode .mq-scaled {
+  display: -moz-inline-box;
+  display: inline-block;
+}
+.mq-math-mode var,
+.mq-math-mode .mq-text-mode,
+.mq-math-mode .mq-nonSymbola {
+  font-family: "Times New Roman", Symbola, serif;
+  line-height: .9;
+}
+.mq-math-mode * {
+  font-size: inherit;
+  line-height: inherit;
+  margin: 0;
+  padding: 0;
+  border-color: black;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  box-sizing: border-box;
+}
+.mq-math-mode .mq-empty {
+  background: #ccc;
+}
+.mq-math-mode .mq-empty.mq-root-block {
+  background: transparent;
+}
+.mq-math-mode.mq-empty {
+  background: transparent;
+}
+.mq-math-mode .mq-text-mode {
+  display: inline-block;
+}
+.mq-math-mode .mq-text-mode.mq-hasCursor {
+  box-shadow: inset darkgray 0 .1em .2em;
+  padding: 0 .1em;
+  margin: 0 -0.1em;
+  min-width: 1ex;
+}
+.mq-math-mode .mq-font {
+  font: 1em "Times New Roman", Symbola, serif;
+}
+.mq-math-mode .mq-font * {
+  font-family: inherit;
+  font-style: inherit;
+}
+.mq-math-mode b,
+.mq-math-mode b.mq-font {
+  font-weight: bolder;
+}
+.mq-math-mode var,
+.mq-math-mode i,
+.mq-math-mode i.mq-font {
+  font-style: italic;
+}
+.mq-math-mode var.mq-f {
+  margin-right: 0.2em;
+  margin-left: 0.1em;
+}
+.mq-math-mode .mq-roman var.mq-f {
+  margin: 0;
+}
+.mq-math-mode big {
+  font-size: 200%;
+}
+.mq-math-mode .mq-int > big {
+  display: inline-block;
+  -webkit-transform: scaleX(0.7);
+  -moz-transform: scaleX(0.7);
+  -ms-transform: scaleX(0.7);
+  -o-transform: scaleX(0.7);
+  transform: scaleX(0.7);
+  vertical-align: -0.16em;
+}
+.mq-math-mode .mq-int > .mq-supsub {
+  font-size: 80%;
+  vertical-align: -1.1em;
+  padding-right: .2em;
+}
+.mq-math-mode .mq-int > .mq-supsub > .mq-sup > .mq-sup-inner {
+  vertical-align: 1.3em;
+}
+.mq-math-mode .mq-int > .mq-supsub > .mq-sub {
+  margin-left: -0.35em;
+}
+.mq-math-mode .mq-roman {
+  font-style: normal;
+}
+.mq-math-mode .mq-sans-serif {
+  font-family: sans-serif, Symbola, serif;
+}
+.mq-math-mode .mq-monospace {
+  font-family: monospace, Symbola, serif;
+}
+.mq-math-mode .mq-overline {
+  border-top: 1px solid black;
+  margin-top: 1px;
+}
+.mq-math-mode .mq-underline {
+  border-bottom: 1px solid black;
+  margin-bottom: 1px;
+}
+.mq-math-mode .mq-binary-operator {
+  padding: 0 0.2em;
+  display: -moz-inline-box;
+  display: inline-block;
+}
+.mq-math-mode .mq-supsub {
+  text-align: left;
+  font-size: 90%;
+  vertical-align: -0.5em;
+}
+.mq-math-mode .mq-supsub.mq-sup-only {
+  vertical-align: .5em;
+}
+.mq-math-mode .mq-supsub.mq-sup-only .mq-sup {
+  display: inline-block;
+  vertical-align: text-bottom;
+}
+.mq-math-mode .mq-supsub .mq-sup {
+  display: block;
+}
+.mq-math-mode .mq-supsub .mq-sub {
+  display: block;
+  float: left;
+}
+.mq-math-mode .mq-supsub .mq-binary-operator {
+  padding: 0 .1em;
+}
+.mq-math-mode .mq-supsub .mq-fraction {
+  font-size: 70%;
+}
+.mq-math-mode sup.mq-nthroot {
+  font-size: 80%;
+  vertical-align: 0.8em;
+  margin-right: -0.6em;
+  margin-left: .2em;
+  min-width: .5em;
+}
+.mq-math-mode .mq-paren {
+  padding: 0 .1em;
+  vertical-align: top;
+  -webkit-transform-origin: center .06em;
+  -moz-transform-origin: center .06em;
+  -ms-transform-origin: center .06em;
+  -o-transform-origin: center .06em;
+  transform-origin: center .06em;
+}
+.mq-math-mode .mq-paren.mq-ghost {
+  color: silver;
+}
+.mq-math-mode .mq-paren + span {
+  margin-top: .1em;
+  margin-bottom: .1em;
+}
+.mq-math-mode .mq-array {
+  vertical-align: middle;
+  text-align: center;
+}
+.mq-math-mode .mq-array > span {
+  display: block;
+}
+.mq-math-mode .mq-operator-name {
+  font-family: Symbola, "Times New Roman", serif;
+  line-height: .9;
+  font-style: normal;
+}
+.mq-math-mode var.mq-operator-name.mq-first {
+  padding-left: .2em;
+}
+.mq-math-mode var.mq-operator-name.mq-last,
+.mq-math-mode .mq-supsub.mq-after-operator-name {
+  padding-right: .2em;
+}
+.mq-math-mode .mq-fraction {
+  font-size: 90%;
+  text-align: center;
+  vertical-align: -0.4em;
+  padding: 0 .2em;
+}
+.mq-math-mode .mq-fraction,
+.mq-math-mode .mq-large-operator,
+.mq-math-mode x:-moz-any-link {
+  display: -moz-groupbox;
+}
+.mq-math-mode .mq-fraction,
+.mq-math-mode .mq-large-operator,
+.mq-math-mode x:-moz-any-link,
+.mq-math-mode x:default {
+  display: inline-block;
+}
+.mq-math-mode .mq-numerator,
+.mq-math-mode .mq-denominator {
+  display: block;
+}
+.mq-math-mode .mq-numerator {
+  padding: 0 0.1em;
+}
+.mq-math-mode .mq-denominator {
+  border-top: 1px solid;
+  float: right;
+  width: 100%;
+  padding: 0.1em;
+}
+.mq-math-mode .mq-sqrt-prefix {
+  padding-top: 0;
+  position: relative;
+  top: 0.1em;
+  vertical-align: top;
+  -webkit-transform-origin: top;
+  -moz-transform-origin: top;
+  -ms-transform-origin: top;
+  -o-transform-origin: top;
+  transform-origin: top;
+}
+.mq-math-mode .mq-sqrt-stem {
+  border-top: 1px solid;
+  margin-top: 1px;
+  padding-left: .15em;
+  padding-right: .2em;
+  margin-right: .1em;
+  padding-top: 1px;
+}
+.mq-math-mode .mq-vector-prefix {
+  display: block;
+  text-align: center;
+  line-height: .25em;
+  margin-bottom: -0.1em;
+  font-size: 0.75em;
+}
+.mq-math-mode .mq-vector-stem {
+  display: block;
+}
+.mq-math-mode .mq-large-operator {
+  vertical-align: -0.2em;
+  padding: .2em;
+  text-align: center;
+}
+.mq-math-mode .mq-large-operator .mq-from,
+.mq-math-mode .mq-large-operator big,
+.mq-math-mode .mq-large-operator .mq-to {
+  display: block;
+}
+.mq-math-mode .mq-large-operator .mq-from,
+.mq-math-mode .mq-large-operator .mq-to {
+  font-size: 80%;
+}
+.mq-math-mode .mq-large-operator .mq-from {
+  float: right;
+  /* take out of normal flow to manipulate baseline */
+  width: 100%;
+}
+.mq-math-mode,
+.mq-math-mode .mq-editable-field {
+  cursor: text;
+  font-family: Symbola, "Times New Roman", serif;
+}
+.mq-math-mode .mq-overarrow {
+  border-top: 1px solid black;
+  margin-top: 1px;
+  padding-top: 0.2em;
+}
+.mq-math-mode .mq-overarrow:before {
+  display: block;
+  position: relative;
+  top: -0.34em;
+  font-size: 0.5em;
+  line-height: 0em;
+  content: '\27A4';
+  text-align: right;
+}
+.mq-math-mode .mq-overarrow.mq-arrow-left:before {
+  -moz-transform: scaleX(-1);
+  -o-transform: scaleX(-1);
+  -webkit-transform: scaleX(-1);
+  transform: scaleX(-1);
+  filter: FlipH;
+  -ms-filter: "FlipH";
+}
+.mq-math-mode .mq-selection,
+.mq-editable-field .mq-selection,
+.mq-math-mode .mq-selection .mq-non-leaf,
+.mq-editable-field .mq-selection .mq-non-leaf,
+.mq-math-mode .mq-selection .mq-scaled,
+.mq-editable-field .mq-selection .mq-scaled {
+  background: #B4D5FE !important;
+  background: Highlight !important;
+  color: HighlightText;
+  border-color: HighlightText;
+}
+.mq-math-mode .mq-selection .mq-matrixed,
+.mq-editable-field .mq-selection .mq-matrixed {
+  background: #39F !important;
+}
+.mq-math-mode .mq-selection .mq-matrixed-container,
+.mq-editable-field .mq-selection .mq-matrixed-container {
+  filter: progid:DXImageTransform.Microsoft.Chroma(color='#3399FF') !important;
+}
+.mq-math-mode .mq-selection.mq-blur,
+.mq-editable-field .mq-selection.mq-blur,
+.mq-math-mode .mq-selection.mq-blur .mq-non-leaf,
+.mq-editable-field .mq-selection.mq-blur .mq-non-leaf,
+.mq-math-mode .mq-selection.mq-blur .mq-scaled,
+.mq-editable-field .mq-selection.mq-blur .mq-scaled,
+.mq-math-mode .mq-selection.mq-blur .mq-matrixed,
+.mq-editable-field .mq-selection.mq-blur .mq-matrixed {
+  background: #D4D4D4 !important;
+  color: black;
+  border-color: black;
+}
+.mq-math-mode .mq-selection.mq-blur .mq-matrixed-container,
+.mq-editable-field .mq-selection.mq-blur .mq-matrixed-container {
+  filter: progid:DXImageTransform.Microsoft.Chroma(color='#D4D4D4') !important;
+}
+.mq-editable-field .mq-textarea,
+.mq-math-mode .mq-textarea {
+  position: relative;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+}
+.mq-editable-field .mq-textarea *,
+.mq-math-mode .mq-textarea *,
+.mq-editable-field .mq-selectable,
+.mq-math-mode .mq-selectable {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  position: absolute;
+  clip: rect(1em 1em 1em 1em);
+  -webkit-transform: scale(0);
+  -moz-transform: scale(0);
+  -ms-transform: scale(0);
+  -o-transform: scale(0);
+  transform: scale(0);
+  resize: none;
+  width: 1px;
+  height: 1px;
+}
+.mq-math-mode .mq-matrixed {
+  background: white;
+  display: -moz-inline-box;
+  display: inline-block;
+}
+.mq-math-mode .mq-matrixed-container {
+  filter: progid:DXImageTransform.Microsoft.Chroma(color='white');
+  margin-top: -0.1em;
+}
+/* math fields, themed */
+.expr.mq-editable-field{display:block;width:100%;min-width:0;border:0;box-shadow:none!important;padding:3px 0;font-size:18px;color:var(--ink);overflow-x:auto;overflow-y:hidden;cursor:text}
+.expr.mq-math-mode,.expr.mq-math-mode .mq-root-block{font-family:"STIX Two Text","Times New Roman",Symbola,serif}
+.expr .mq-root-block{min-height:1.3em;padding:1px 0;white-space:nowrap}
+.expr .mq-root-block.mq-empty::after{content:"Try ρ = 2sin φ or z = x² − y²";color:var(--muted);opacity:.7;font-style:italic;font-size:15px}
+.expr.mq-editable-field .mq-cursor{border-left-color:var(--ink)}
+.expr .mq-empty:not(.mq-root-block){background:var(--line)!important}
+.expr.mq-focused .mq-selection,.expr .mq-selection .mq-non-leaf,.expr .mq-selection .mq-scaled{background:color-mix(in srgb,var(--accent) 30%,transparent)!important;color:inherit!important;border-color:inherit!important}
+.expr .mq-matrixed{background:var(--panel)}
+.expr .mq-root-block var,.expr .mq-root-block .mq-operator-name{font-size:inherit}
+/* matrix rows */
+.matrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 0;font-size:18px;color:var(--ink)}
+.matrow .mq-editable-field{border:0;box-shadow:none!important;font-family:"STIX Two Text","Times New Roman",Symbola,serif}
+.matrow .mq-editable-field .mq-cursor{border-left-color:var(--ink)}
+.mname{min-width:14px}
+.meq{font-family:"STIX Two Text","Times New Roman",serif}
+.mbox{position:relative;padding:6px 16px 6px 14px;max-width:100%;overflow:visible}
+.mbox::before,.mbox::after{content:"";position:absolute;top:0;bottom:0;width:6px;border:1.5px solid var(--ink)}
+.mbox::before{left:2px;border-right:0}
+.mbox::after{right:4px;border-left:0}
+.mgrid{display:grid;gap:5px 12px;align-items:center;justify-items:center}
+.mcell{min-width:26px;text-align:center;padding:1px 3px;border-radius:4px}
+.mcell.mq-focused{background:var(--focus)}
+.mcell .mq-root-block{text-align:center}
+.mcell.bad{outline:1.5px solid var(--err);outline-offset:1px}
+.mhandle{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;padding:0;border:2px solid var(--panel);border-radius:4px;background:var(--accent);cursor:nwse-resize;touch-action:none}
+.mhandle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.msize{position:absolute;right:-6px;bottom:-30px;font:500 11px "JetBrains Mono",ui-monospace,monospace;background:var(--ink);color:var(--panel);padding:2px 6px;border-radius:5px;white-space:nowrap;pointer-events:none;z-index:2}
+.del{width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:18px;line-height:1;opacity:.55}
+.del:hover{opacity:1;background:var(--line)}
+.meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;gap:7px;align-items:baseline;padding:2px 9px;border-radius:999px;font-size:12px;background:var(--chip-cart);color:var(--chip-cart-ink)}
+.chip b{font-weight:600;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+.chip span{font-family:"JetBrains Mono",ui-monospace,monospace}
+.chip[data-sys="cyl"]{background:var(--chip-cyl);color:var(--chip-cyl-ink)}
+.chip[data-sys="sph"]{background:var(--chip-sph);color:var(--chip-sph-ink)}
+.chip[data-sys="mixed"]{background:var(--chip-mix);color:var(--chip-mix-ink)}
+.sys{border:1px solid var(--line);background:var(--field);border-radius:6px;font-size:12px;padding:1px 4px;color:var(--muted)}
+.reads{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.reads em{font-style:normal;color:var(--ink)}
+.msg{font-size:12.5px;color:var(--err)}
+.msg:empty,.reads:empty,.extra:empty{display:none}
+.extra{display:flex;flex-direction:column;gap:6px}
+.calc{display:flex;align-items:center;gap:8px;font-size:19px;color:var(--ink)}
+.calc-eq{font-family:"STIX Two Text","Times New Roman",serif;color:var(--muted)}
+.calc-val .mq-math-mode,.calc-val.mq-math-mode{font-family:"STIX Two Text","Times New Roman",Symbola,serif;font-size:20px}
+.frac{margin-left:auto;border:1px solid var(--line);background:var(--field);border-radius:6px;padding:1px 8px;font:500 12px "JetBrains Mono",ui-monospace,monospace;color:var(--muted)}
+.rng .inf{margin-left:0;font-size:14px;line-height:18px;padding:1px 9px}
+.frac[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.calc-note{font-size:12.5px;color:var(--muted)}
+.calc-note:empty{display:none}
+.slider{display:grid;grid-template-columns:28px 52px 1fr 52px;gap:8px;align-items:center}
+.slider input[type=range]{width:100%;accent-color:var(--c)}
+.num{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--field);border-radius:6px;padding:2px 5px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+.play{width:28px;height:26px;border:1px solid var(--line);border-radius:6px;background:var(--field);font-size:11px;padding:0}
+.rng{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+.rng .num{width:78px}
+.rng.both{cursor:pointer;color:var(--ink)}
+.rng.convert{gap:6px}
+.rng.convert .mk{padding:1px 8px;font-size:12px}
+.rng.both input{accent-color:var(--c);margin:0}
+.rng.both .key{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--k)}
+.rng i{font-family:"JetBrains Mono",monospace;font-style:normal;color:var(--ink)}
+.mk{align-self:flex-start;border:1px solid var(--line);background:var(--field);border-radius:6px;padding:2px 9px;font-size:12.5px}
+.mk:hover{border-color:var(--accent)}
+
+.adds{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.ex{flex:1;min-width:150px;border:1px solid var(--line);background:var(--field);border-radius:8px;padding:6px 8px;font-size:13px}
+
+.settings{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 16px 14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--field)}
+.seg button{border:0;background:transparent;padding:4px 10px;font-size:12.5px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.settings label{display:inline-flex;gap:6px;align-items:center}
+.scale{flex:1 1 220px}
+.scale input[type=range]{flex:1;min-width:90px;accent-color:var(--accent)}
+.scale output{min-width:44px;font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--ink);font-variant-numeric:tabular-nums}
+.settings input[type=checkbox]{accent-color:var(--accent);margin:0}
+.settings select{border:1px solid var(--line);background:var(--field);border-radius:6px;padding:2px 4px;font-size:12.5px}
+
+details.help{padding:0 16px 10px;font-size:12.5px;color:var(--muted)}
+details.help summary{cursor:pointer;color:var(--ink);padding:4px 0}
+details.help ul{margin:6px 0 0;padding-left:18px;display:grid;gap:3px;max-height:34vh;overflow:auto;overscroll-behavior:contain}
+.rows{min-height:140px}
+details.help code{font-family:"JetBrains Mono",monospace;color:var(--ink);font-size:12px}
+
+.hud{position:absolute;left:16px;right:16px;bottom:14px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;pointer-events:none}
+.legend{font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--canvas) 80%,transparent);padding:4px 8px;border-radius:6px}
+.legend span{font-family:"JetBrains Mono",monospace;color:var(--ink)}
+.hud button{pointer-events:auto;border:1px solid var(--line);background:var(--field);border-radius:8px;padding:5px 10px;font-size:12.5px}
+.hud-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.pad{display:grid;grid-template-columns:repeat(2,44px);gap:6px}
+.pad button{height:36px;padding:0;font-size:12px;touch-action:none;user-select:none;-webkit-user-select:none}
+.cross{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--ink);opacity:.45;pointer-events:none}
+.stage.flying #view canvas{cursor:grab}
+.stage.flying #view canvas:active{cursor:grabbing}
+.fps{position:absolute;top:calc(12px + env(safe-area-inset-top, 0px));right:16px;z-index:2;padding:3px 8px;border-radius:6px;background:color-mix(in srgb,var(--canvas) 80%,transparent);border:1px solid var(--line);font:500 12px "JetBrains Mono",ui-monospace,monospace;color:var(--muted);font-variant-numeric:tabular-nums;cursor:pointer;user-select:none}
+.fps b{font-weight:600;color:var(--fps,var(--ink))}
+.fps.dim{opacity:.35}
+[hidden]{display:none!important}
+
+@media (max-width:760px){
+  .app.collapsed{grid-template-columns:1fr;grid-template-rows:1fr}
+  .app{grid-template-columns:1fr;grid-template-rows:46% 54%}
+  .stage{grid-row:1}
+  .panel{grid-row:2;border-right:0;border-top:1px solid var(--line)}
+  .head{padding-top:10px}
+  details.help{display:none}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+
+<div class="app">
+  <aside class="panel">
+    <div class="head">
+      <div class="mark">CommunityGrapher<i>3D</i></div>
+      <button type="button" class="collapse" id="collapse" aria-label="Hide sidebar" title="Hide sidebar">«</button>
+    </div>
+    <div class="keys" id="keys" aria-label="Insert symbol">
+      <button type="button" data-cmd="\rho">ρ</button><button type="button" data-cmd="\theta">θ</button><button type="button" data-cmd="\phi">φ</button><button type="button" data-cmd="\pi">π</button><button type="button" data-cmd="\sqrt" aria-label="Square root">√</button><button type="button" data-cmd="\frac" aria-label="Fraction">a⁄b</button><button type="button" data-cmd="\le">≤</button><button type="button" data-cmd="\ge">≥</button><button type="button" data-cmd="^" aria-label="Exponent">xⁿ</button><button type="button" data-cmd="sq" aria-label="Squared">x²</button><button type="button" data-cmd="(">( )</button><button type="button" data-cmd="{" aria-label="Set braces">{ }</button><button type="button" data-cmd="\in" aria-label="Element of">∈</button>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="adds">
+      <select class="ex" id="examples" aria-label="Add an example"><option value="">Add an example…</option></select>
+    </div>
+    <details class="help">
+      <summary>README</summary>
+      <ul>
+        <li><code>x y z</code> → Cartesian, e.g. <code>z = sin(x)cos(y)</code></li>
+        <li><code>r θ z</code> → Cylindrical, e.g. <code>r = 2 + cos(4θ)</code></li>
+        <li><code>ρ θ φ</code> → Spherical, e.g. <code>ρ = 1 - cos(φ)</code></li>
+        <li>Spell it however: <code>rho</code>, <code>roh</code>, <code>ρ</code>, <code>\theta</code>, <code>rsinφ</code></li>
+        <li>Mixed variables → implicit surface, e.g. <code>ρ = 2 + sin(3x)/3</code></li>
+        <li>Inequalities → shaded solid, e.g. <code>ρ ≤ 2 and φ ≤ π/6</code>, <code>1 &lt; r &lt; 3</code></li>
+        <li>2D sets are drawn in the xy-plane: <code>{(x, y) : x &lt; 2}</code>, <code>{(r, θ) : r ≤ 1 + cos θ}</code></li>
+        <li>Put a matrix in front of a set to map it: <code>A{(x, y, z) : x² + y² + z² = 1}</code></li>
+        <li>Sets: <code>{(x, y, z) : x² + y² + z² = 1, z ≥ 0}</code> or <code>{(cos t, sin t, t) : t ∈ [0, 4π]}</code></li>
+        <li>Plain maths is a calculator: <code>1+1</code> shows <code>= 2</code>; the <code>a/b</code> button shows the answer as a fraction</li>
+        <li>Sets written with coordinates get <b>Convert to</b> buttons for the other coordinate systems</li>
+        <li>Click the empty space under the lines to add a new one</li>
+        <li><code>A = Matrix</code> → a matrix you can edit and resize; <code>A(cos t, sin t, 0)</code> multiplies it by a vector</li>
+        <li><code>seq(k)(1/k, 1/(3k), 1/(2k))</code> → a sequence drawn as dots, one per term; set which <code>k</code> values under it, or press <code>∞</code> to go on forever; a line joins the terms in order (untick <b>Connect the dots</b> to hide it), and the first term is the bigger dot</li>
+        <li>Functions: <code>f(a, b, c) = (3a, 2b, 4c)</code>, then <code>f({(a, b, c) : a² + b² + c² = 1})</code> draws the image of the set; name a set with <code>A = {…}</code> and use <code>f(A)</code>. Functions also work in any line, like <code>f(cos t, sin t, t)</code></li>
+        <li><code>(f(t), g(t), h(t))</code> → curve · use <code>u, v</code> for a surface</li>
+        <li>Any other letter becomes a slider</li>
+      </ul>
+    </details>
+    <div class="settings">
+      <div class="seg" role="group" aria-label="Camera">
+        <button type="button" id="mode-orbit" aria-pressed="true">Orbit</button>
+        <button type="button" id="mode-fly" aria-pressed="false">Fly</button>
+      </div>
+      <div class="seg" role="group" aria-label="Angle convention">
+        <button type="button" id="conv-math" aria-pressed="true">Math</button>
+        <button type="button" id="conv-phys" aria-pressed="false">Physics</button>
+      </div>
+      <label class="scale">Scale <input type="range" id="scale" min="0" max="1000" step="1" aria-label="Scale of the graph box"><output id="scale-out" for="scale">±5</output></label>
+      <label class="scale" id="render-wrap" hidden>Render distance <input type="range" id="render" min="0" max="1000" step="1" aria-label="Render distance"><output id="render-out" for="render">12</output></label>
+      <label><input type="checkbox" id="wheel" checked> <span id="wheel-label">Scroll to zoom</span></label>
+      <label class="scale res">Resolution <input type="range" id="quality" min="0" max="1000" step="1" aria-label="Rendering resolution"><output id="quality-out" for="quality">×1</output></label>
+    </div>
+  </aside>
+  <main class="stage">
+    <div id="view"></div>
+    <button type="button" class="expand" id="expand" hidden aria-label="Show sidebar">» Expressions</button>
+    <div class="fps" id="fps" title="Frames per second (click to dim)"><b>--</b> FPS</div>
+    <div class="cross" id="cross" hidden></div>
+    <div class="hud">
+      <div class="legend" id="legend"></div>
+      <div class="hud-right">
+        <div class="pad" id="pad" hidden>
+          <button type="button" data-code="Space" aria-label="Rise">Rise</button>
+          <button type="button" data-code="KeyW" aria-label="Fly forward">▲</button>
+          <button type="button" data-code="ShiftLeft" aria-label="Sink">Sink</button>
+          <button type="button" data-code="KeyS" aria-label="Fly backward">▼</button>
+        </div>
+        <button type="button" id="reset">Reset view</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/lines/LineSegmentsGeometry.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/lines/LineMaterial.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/lines/LineSegments2.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mathjs@11.11.0/lib/browser/math.js"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathquill/0.10.1/mathquill.min.js"></script>
+<script>
+(() => {
+'use strict';
+// ───────────────────────── math core ─────────────────────────
+const H = {
+  pow(a, b) {
+    if (a >= 0 || Number.isInteger(b)) return Math.pow(a, b);
+    for (const q of [3, 5, 7, 9]) {
+      const p = b * q;
+      if (Math.abs(p - Math.round(p)) < 1e-9) { const r = Math.pow(-a, b); return Math.round(p) % 2 !== 0 ? -r : r; }
+    }
+    return NaN;
+  },
+  mod: (a, b) => ((a % b) + b) % b,
+  fact(n) {
+    if (!Number.isInteger(n)) return H.gamma(n + 1);
+    if (n < 0) return NaN;
+    let r = 1; for (let i = 2; i <= n && i < 171; i++) r *= i; return n > 170 ? Infinity : r;
+  },
+  gamma(z) { // Lanczos approximation
+    if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * H.gamma(1 - z));
+    const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    z -= 1; let x = c[0];
+    for (let i = 1; i < 9; i++) x += c[i] / (z + i);
+    const t = z + 7.5;
+    return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
+  },
+};
+const FN = {
+  sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+  sec: x => 1 / Math.cos(x), csc: x => 1 / Math.sin(x), cot: x => 1 / Math.tan(x),
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, asinh: Math.asinh, acosh: Math.acosh, atanh: Math.atanh,
+  sqrt: Math.sqrt, cbrt: Math.cbrt, exp: Math.exp, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round,
+  sign: Math.sign, min: Math.min, max: Math.max, pow: (a, b) => H.pow(a, b), mod: H.mod,
+  log: (x, b) => b === undefined ? Math.log(x) : Math.log(x) / Math.log(b), log10: Math.log10, log2: Math.log2,
+  nthRoot: (x, n) => H.pow(x, 1 / n),
+};
+const CONSTS = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI };
+const COORDS = ['x', 'y', 'z', 'r', 'rho', 'theta', 'phi'];
+const PARAMS = ['t', 'u', 'v'];
+const SYN = {
+  roh: 'rho', rhoo: 'rho', Rho: 'rho', RHO: 'rho', Theta: 'theta', THETA: 'theta', teta: 'theta', thetta: 'theta', theata: 'theta', thetha: 'theta',
+  Phi: 'phi', PHI: 'phi', phy: 'phi', Pi: 'pi', PI: 'pi', X: 'x', Y: 'y', Z: 'z',
+  ln: 'log', log: 'log10', arcsin: 'asin', arccos: 'acos', arctan: 'atan', arcsinh: 'asinh', arccosh: 'acosh', arctanh: 'atanh', sgn: 'sign',
+};
+const GREEK = {
+  rho: 'ρ', roh: 'ρ', theta: 'θ', phi: 'φ', pi: 'π', tau: 'τ',
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', iota: 'ι', kappa: 'κ',
+  lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', sigma: 'σ', upsilon: 'υ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Lambda: 'Λ', Sigma: 'Σ', Omega: 'Ω', Phi: 'Φ', Psi: 'Ψ', Theta: 'Θ',
+};
+// Greek letter names that stand for a single variable (never split into letters).
+const GREEK_VARS = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'sigma', 'upsilon', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Lambda', 'Sigma', 'Omega', 'Psi'];
+SYN.varepsilon = 'epsilon';
+const texName = n => (GREEK_VARS.includes(n) || n in GREEK ? '\\' + n : n.replace(/_([A-Za-z0-9]+)/, '_{$1}'));
+function greek(str) {
+  return str.replace(/\b([A-Za-z]+)\b/g, m => (GREEK[m] && m !== 'roh' ? GREEK[m] : m));
+}
+function pretty(str) {
+  return greek(str.replace(/\[/g, '(').replace(/\]/g, ')').replace(/\blog\(/g, 'ln(').replace(/\blog10\(/g, 'log('))
+    .replace(/ \^ /g, '^').replace(/ \* /g, '·').replace(/\*/g, '·').replace(/(?<![A-Za-z_\d.])(\d+(?:\.\d+)?)·(?=[A-Za-zρθφπτ(])/g, '$1'); // 2·x → 2x, but a_1·x stays
+}
+const fmtNode = n => pretty(n.toString({ implicit: 'hide', parenthesis: 'auto' }));
+
+// MathQuill gives LaTeX; turn it into the plain syntax rewrite() understands.
+function latexToText(src) {
+  const s = src || ''; let i = 0;
+  const CMD = { cdot: '*', times: '*', div: '/', le: '<=', leq: '<=', ge: '>=', geq: '>=', lt: '<', gt: '>', varphi: 'phi', vartheta: 'theta', varrho: 'rho', ',': ' ', ':': ' ', ';': ' ', '!': '', ' ': ' ', '{': '{', '}': '}', '%': '%', '|': '|', mid: ':', colon: ':', land: ';', wedge: ';', in: 'in', R: 'R' };
+  const group = () => {
+    while (s[i] === ' ') i++;
+    if (s[i] === '{') { i++; const out = seq('}'); i++; return out; }
+    if (s[i] === '\\') return cmd();
+    return s[i++] || '';
+  };
+  const cmd = () => {
+    i++;
+    let name = '';
+    if (/[A-Za-z]/.test(s[i] || '')) while (i < s.length && /[A-Za-z]/.test(s[i])) name += s[i++];
+    else name = s[i++] || '';
+    switch (name) {
+      case 'frac': case 'dfrac': case 'tfrac': { const a = group(), b = group(); return `((${a})/(${b}))`; }
+      case 'sqrt': { let n = null; if (s[i] === '[') { i++; n = seq(']'); i++; } const g = group(); return n ? `nthRoot(${g},${n})` : `sqrt(${g})`; }
+      case 'left': case 'right': {
+        while (s[i] === ' ') i++;
+        if (s[i] === '|') { i++; return name === 'left' ? ' abs(' : ')'; }
+        if (s[i] === '\\') { i++; const c = s[i++]; return c === '{' ? '{' : c === '}' ? '}' : ''; }
+        if (s[i] === '.') { i++; return ''; }
+        return '';
+      }
+      case 'operatorname': case 'mathrm': case 'text': case 'mathit': case 'mathbb': return ' ' + group() + ' ';
+      default: return ' ' + (CMD[name] ?? name) + ' ';
+    }
+  };
+  const seq = end => {
+    let out = '';
+    while (i < s.length && s[i] !== end) {
+      const c = s[i];
+      if (c === '\\') out += cmd();
+      else if (c === '{') { i++; out += '(' + seq('}') + ')'; i++; }
+      else if (c === '^') { i++; out += '^(' + group() + ')'; }
+      else if (c === '_') { i++; out += '_' + group().replace(/[^A-Za-z0-9]/g, '') + ' '; } // R_x stays one name; a_1x is a_1·x
+      else { out += c; i++; }
+    }
+    return out;
+  };
+  return seq(null).replace(/\s+/g, ' ').trim();
+}
+// Rewrite whatever the user typed into something math.js parses unambiguously.
+function rewrite(src, userNames) {
+  const notes = [];
+  let s = src
+    .replace(/≤|=</g, '<=').replace(/≥|=>/g, '>=').replace(/\band\b|&&|∧/gi, ';')
+    .replace(/[ρϱ]/g, ' rho ').replace(/[θϑΘ]/g, ' theta ').replace(/[φϕΦ]/g, ' phi ').replace(/π/g, ' pi ').replace(/τ/g, ' tau ')
+    .replace(/√/g, ' sqrt ').replace(/²/g, '^2').replace(/³/g, '^3').replace(/[·×⋅∙]/g, '*').replace(/÷/g, '/').replace(/[−–]/g, '-')
+    .replace(/\*\*/g, '^');
+  // light LaTeX
+  s = s.replace(/\\left|\\right/g, '').replace(/\\cdot|\\times/g, '*');
+  for (let i = 0; i < 6 && /\\frac\{[^{}]*\}\{[^{}]*\}/.test(s); i++) s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '(($1)/($2))');
+  s = s.replace(/\\sqrt\{([^{}]*)\}/g, 'sqrt($1)').replace(/\\([A-Za-z]+)/g, ' $1 ').replace(/\{/g, '(').replace(/\}/g, ')');
+  s = s.replace(/\|([^|]+)\|/g, 'abs($1)');
+
+  const known = new Set([...Object.keys(FN), ...COORDS, ...PARAMS, ...Object.keys(CONSTS), ...Object.keys(SYN), ...GREEK_VARS, ...userNames]);
+  const toks = [];
+  const re = /(log10|log2|atan2|nthRoot)|([A-Za-z]+(?:_[A-Za-z0-9]+)?)|(\d+\.?\d*|\.\d+)|(\s+)|([\s\S])/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m[1]) toks.push({ t: 'id', v: m[1] });
+    else if (m[2]) {
+      const parts = known.has(m[2]) || m[2].includes('_') ? [m[2]] : splitId(m[2], known);
+      if (parts.length > 1) notes.push(`${m[2]} → ${parts.map(p => GREEK[SYN[p] || p] || SYN[p] || p).join('·')}`);
+      for (const p of parts) {
+        const mapped = SYN[p] || p;
+        if (SYN[p] && COORDS.includes(mapped) && p.toLowerCase() !== mapped && parts.length === 1) notes.push(`${p} → ${GREEK[mapped] || mapped}`);
+        toks.push({ t: 'id', v: mapped });
+      }
+    }
+    else if (m[3]) toks.push({ t: 'num', v: m[3] });
+    else if (m[4]) continue;
+    else toks.push({ t: 'op', v: m[5] });
+  }
+  return { s: emit(toks), notes };
+}
+function splitId(w, known) {
+  const n = w.length, best = new Array(n + 1).fill(Infinity), prev = new Array(n + 1);
+  best[0] = 0;
+  for (let i = 0; i < n; i++) {
+    if (best[i] === Infinity) continue;
+    for (let len = 1; len <= Math.min(8, n - i); len++) {
+      const part = w.substr(i, len);
+      const cost = known.has(part) ? 1 : (len === 1 ? 1.6 : Infinity);
+      if (best[i] + cost < best[i + len]) { best[i + len] = best[i] + cost; prev[i + len] = i; }
+    }
+  }
+  const parts = [];
+  for (let i = n; i > 0; i = prev[i]) parts.unshift(w.slice(prev[i], i));
+  return parts;
+}
+function matchParen(toks, i) {
+  let d = 0;
+  for (let j = i; j < toks.length; j++) {
+    if (toks[j].v === '(') d++;
+    else if (toks[j].v === ')' && --d === 0) return j;
+  }
+  return -1;
+}
+function emit(toks) {
+  const out = [];
+  const push = (s, a, b) => { const p = out[out.length - 1]; if (p && p.b && a) out.push({ s: '*', a: false, b: false }); out.push({ s, a, b }); };
+  let i = 0;
+  while (i < toks.length) {
+    const k = toks[i];
+    if (k.t === 'num') { push(k.v, true, true); i++; continue; }
+    if (k.t === 'id') {
+      if (k.v === 'mod' && out.length && out[out.length - 1].b && toks[i + 1] && toks[i + 1].v !== '(') { push(' mod ', false, false); i++; continue; } // a mod b
+      if (isFn(k.v)) {
+        const nx = toks[i + 1];
+        if (nx && nx.v === '^' && toks[i + 2]) {
+          // sin^2(x), sin^2 x, sin^(2)(x): the power applies to the function's value
+          let ex = null, j = i + 3;
+          if (toks[i + 2].t === 'num') ex = toks[i + 2].v;
+          else if (toks[i + 2].v === '(') { const m = matchParen(toks, i + 2); if (m > 0) { ex = '(' + emit(toks.slice(i + 3, m)) + ')'; j = m + 1; } }
+          if (ex !== null && toks[j] && toks[j].v === '(') {
+            const m = matchParen(toks, j);
+            if (m > 0) { push(`(${k.v}(${emit(toks.slice(j + 1, m))}))^${ex}`, true, true); i = m + 1; continue; }
+          }
+          if (ex !== null) {
+            const arg = [];
+            while (j < toks.length && (toks[j].t === 'num' || (toks[j].t === 'id' && !isFn(toks[j].v)))) arg.push(toks[j++]);
+            if (arg.length) { push(`(${k.v}(${emit(arg)}))^${ex}`, true, true); i = j; continue; }
+          }
+        }
+        if (nx && nx.v === '(') { push(k.v, true, false); i++; continue; }
+        let j = i + 1; const arg = [];
+        while (j < toks.length) {
+          const q = toks[j];
+          if (q.t === 'num' || (q.t === 'id' && !isFn(q.v))) {
+            arg.push(q); j++;
+            if (toks[j] && toks[j].v === '^' && toks[j + 1] && toks[j + 1].t !== 'op') { arg.push(toks[j], toks[j + 1]); j += 2; }
+          } else break;
+        }
+        if (!arg.length) { push(k.v, true, false); i++; continue; }
+        push(`${k.v}(${emit(arg)})`, true, true); i = j; continue;
+      }
+      push(k.v, true, true); i++; continue;
+    }
+    if (k.v === '(') {
+      // a bracket with top-level commas that isn't a function call is a vector: (a, b, c) → [a, b, c]
+      const prevFn = i > 0 && toks[i - 1].t === 'id' && isFn(toks[i - 1].v), j = matchParen(toks, i);
+      if (!prevFn && j > 0) {
+        const parts = [[]]; let d = 0;
+        for (const q of toks.slice(i + 1, j)) {
+          if (q.v === '(') d++; else if (q.v === ')') d--;
+          if (q.v === ',' && d === 0) parts.push([]); else parts[parts.length - 1].push(q);
+        }
+        if (parts.length > 1) { push('[' + parts.map(emit).join(',') + ']', true, true); i = j + 1; continue; }
+      }
+      push('(', true, false);
+    }
+    else if (k.v === ')') push(')', false, true);
+    else push(k.v, false, false);
+    i++;
+  }
+  return out.map(p => p.s).join('');
+}
+
+function symbolsOf(node) {
+  const set = new Set();
+  node.traverse((n, path, parent) => {
+    if (n.type === 'SymbolNode' && !(parent && parent.type === 'FunctionNode' && path === 'fn')) set.add(n.name);
+  });
+  return set;
+}
+// Matrices defined by matrix rows: name → { r, c, fn(scope) → rows of numbers }.
+let MATS = {};
+// Functions from rows like f(a, b, c) = (3a, 2b, 4c): name → { params, node, src, free, out, fn }.
+let USERFN = new Map();
+// Named sets from rows like A = {(a, b, c) : …}: name → { row, expr, text }.
+let SETDEFS = new Map();
+const isFn = v => !!FN[v] || USERFN.has(v);
+const SUP = n => ({ 1: '', 2: '²', 3: '³' })[n] ?? `^${n}`;
+let UFN_STACK = new Set();
+// What a user function gives back: a number or a 2- or 3-vector.
+function ufnType(name) {
+  const U = USERFN.get(name);
+  if (!U || !U.node || U.err) throw new Error(`${greek(name)} has a problem — fix its definition first.`);
+  if (U.out) return U.out;
+  if (UFN_STACK.has(name)) throw new Error(`${greek(name)} can't be defined using itself.`);
+  UFN_STACK.add(name);
+  try {
+    const t = typeOf(U.node);
+    if (t.t === 'mat') throw new Error(`${greek(name)} has to give a number or a point, not a matrix.`);
+    if (t.t === 'vec' && t.n > 3) throw new Error(`${greek(name)} gives ${t.n} numbers — a point in space has 3.`);
+    return (U.out = t);
+  } finally { UFN_STACK.delete(name); }
+}
+const isArr = Array.isArray;
+const VADD = (a, b) => isArr(a) ? a.map((x, i) => VADD(x, isArr(b) ? b[i] : NaN)) : a + b;
+const VSUB = (a, b) => isArr(a) ? a.map((x, i) => VSUB(x, isArr(b) ? b[i] : NaN)) : a - b;
+const VSCALE = (a, k) => isArr(a) ? a.map(x => VSCALE(x, k)) : a * k;
+function VMUL(a, b) {
+  if (!isArr(a)) return isArr(b) ? VSCALE(b, a) : a * b;
+  if (!isArr(b)) return VSCALE(a, b);
+  if (!isArr(a[0])) return NaN; // vector × vector is not defined here
+  if (isArr(b[0])) return a.map(row => b[0].map((_, j) => row.reduce((acc, x, k) => acc + x * b[k][j], 0)));
+  return a.map(row => row.reduce((acc, x, k) => acc + x * b[k], 0));
+}
+function VPOW(a, b) {
+  if (!isArr(a)) return H.pow(a, b);
+  if (!Number.isInteger(b) || b < 0) return NaN;
+  let r = a.map((row, i) => row.map((_, j) => (i === j ? 1 : 0)));
+  for (let k = 0; k < b; k++) r = VMUL(r, a);
+  return r;
+}
+// Static shape check so mistakes (3×3 matrix times a 2-vector…) get a clear message.
+const NUM = { t: 'num' };
+function typeOf(n) {
+  switch (n.type) {
+    case 'SymbolNode': return MATS[n.name] ? { t: 'mat', r: MATS[n.name].r, c: MATS[n.name].c } : NUM;
+    case 'ParenthesisNode': return typeOf(n.content);
+    case 'ArrayNode': {
+      if (n.items.some(it => typeOf(it).t !== 'num')) throw new Error('Vector entries have to be numbers.');
+      return { t: 'vec', n: n.items.length };
+    }
+    case 'FunctionNode': {
+      const nm = n.fn.name;
+      if (USERFN.has(nm)) {
+        const U = USERFN.get(nm);
+        if (!U.node || U.err) throw new Error(`${greek(nm)} has a problem — fix its definition first.`);
+        const ts = n.args.map(typeOf), want = U.params.length;
+        let got = ts.length;
+        if (ts.length === 1 && ts[0].t === 'vec') got = ts[0].n; // f(P) with P a point
+        else if (ts.some(t => t.t !== 'num')) throw new Error(`${greek(nm)}() needs numbers or one point.`);
+        if (got !== want) throw new Error(`${greek(nm)} takes ${want} input${want > 1 ? 's' : ''}, not ${got}.`);
+        return ufnType(nm);
+      }
+      if (n.args.some(a => typeOf(a).t !== 'num')) throw new Error(`${nm}() needs a number, not a vector or matrix.`);
+      return NUM;
+    }
+    case 'OperatorNode': {
+      const [a, b] = n.args.map(typeOf), dims = x => x.t === 'mat' ? `${x.r}×${x.c} matrix` : x.t === 'vec' ? `${x.n}-vector` : 'number';
+      switch (n.fn) {
+        case 'unaryMinus': case 'unaryPlus': return a;
+        case 'add': case 'subtract':
+          if (a.t !== b.t || (a.t === 'vec' && a.n !== b.n) || (a.t === 'mat' && (a.r !== b.r || a.c !== b.c)))
+            throw new Error(`Can't ${n.fn === 'add' ? 'add' : 'subtract'} a ${dims(a)} and a ${dims(b)}.`);
+          return a;
+        case 'multiply':
+          if (a.t === 'num') return b;
+          if (b.t === 'num') return a;
+          if (a.t === 'mat' && b.t === 'vec') { if (a.c !== b.n) throw new Error(`A ${dims(a)} needs a vector with ${a.c} entries, not ${b.n}.`); return { t: 'vec', n: a.r }; }
+          if (a.t === 'mat' && b.t === 'mat') { if (a.c !== b.r) throw new Error(`Can't multiply a ${dims(a)} by a ${dims(b)}.`); return { t: 'mat', r: a.r, c: b.c }; }
+          throw new Error(`Can't multiply a ${dims(a)} by a ${dims(b)} — try a matrix times a vector.`);
+        case 'divide': if (b.t !== 'num') throw new Error('You can only divide by a number.'); return a;
+        case 'pow':
+          if (a.t === 'num' && b.t === 'num') return NUM;
+          if (a.t === 'mat' && b.t === 'num' && a.r === a.c) return a;
+          throw new Error('Only square matrices can be raised to a power.');
+        default:
+          if (a.t !== 'num' || (b && b.t !== 'num')) throw new Error(`“${n.op}” only works on numbers.`);
+          return NUM;
+      }
+    }
+  }
+  return NUM;
+}
+// Compile a math.js tree into plain closures (no eval, so it runs under any CSP).
+function cl(n) {
+  switch (n.type) {
+    case 'ConstantNode': { const v = Number(n.value); if (Number.isNaN(v)) throw new Error('Only numbers are supported here.'); return () => v; }
+    case 'SymbolNode': {
+      if (n.name in CONSTS) { const v = CONSTS[n.name]; return () => v; }
+      const k = n.name;
+      if (MATS[k]) return s => MATS[k].fn(s); // entries may depend on sliders or t
+      return s => s[k];
+    }
+    case 'ArrayNode': { const items = n.items.map(cl); return s => items.map(f => f(s)); }
+    case 'ParenthesisNode': return cl(n.content);
+    case 'OperatorNode': {
+      const [f, g] = n.args.map(cl);
+      switch (n.fn) {
+        case 'add': return s => { const a = f(s), b = g(s); return typeof a === 'number' && typeof b === 'number' ? a + b : VADD(a, b); };
+        case 'subtract': return s => { const a = f(s), b = g(s); return typeof a === 'number' && typeof b === 'number' ? a - b : VSUB(a, b); };
+        case 'multiply': return s => { const a = f(s), b = g(s); return typeof a === 'number' && typeof b === 'number' ? a * b : VMUL(a, b); };
+        case 'divide': return s => { const a = f(s), b = g(s); return typeof a === 'number' ? a / b : VSCALE(a, 1 / b); };
+        case 'pow': return s => { const a = f(s), b = g(s); return typeof a === 'number' ? H.pow(a, b) : VPOW(a, b); };
+        case 'unaryMinus': return s => { const a = f(s); return typeof a === 'number' ? -a : VSCALE(a, -1); };
+        case 'unaryPlus': return f;
+        case 'mod': return s => H.mod(f(s), g(s));
+        case 'factorial': return s => H.fact(f(s));
+      }
+      throw new Error(`The “${n.op}” operator isn't supported.`);
+    }
+    case 'FunctionNode': {
+      const U = USERFN.get(n.fn.name);
+      if (U) {
+        if (!U.node || U.err) throw new Error(`${greek(n.fn.name)} has a problem — fix its definition first.`);
+        const a = n.args.map(cl), ps = U.params;
+        return s => {
+          let vals = a.map(f => f(s));
+          if (vals.length === 1 && isArr(vals[0]) && ps.length > 1) vals = vals[0];
+          const s2 = Object.create(s); // the inputs shadow any slider with the same name
+          for (let i = 0; i < ps.length; i++) s2[ps[i]] = vals[i];
+          return U.fn(s2);
+        };
+      }
+      const impl = FN[n.fn.name];
+      if (!impl) throw new Error(`${n.fn.name}() isn't a function I know.`);
+      const a = n.args.map(cl);
+      if (a.length === 1) { const f = a[0]; return s => impl(f(s)); }
+      if (a.length === 2) { const [f, g] = a; return s => impl(f(s), g(s)); }
+      return s => impl(...a.map(q => q(s)));
+    }
+  }
+  throw new Error("Couldn't read this expression.");
+}
+function parse(str) {
+  try { return math.parse(str); }
+  catch (e) { throw new Error("Couldn't read this — check the parentheses and operators."); }
+}
+function splitTop(s, seps) {
+  const out = []; let d = 0, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--;
+    else if (d === 0 && seps.includes(c)) { out.push(s.slice(start, i)); start = i + 1; }
+  }
+  out.push(s.slice(start));
+  return out;
+}
+
+// ───────────────────────── coordinate systems ─────────────────────────
+const names = conv => conv === 'math'
+  ? { AZ: 'theta', POL: 'phi', radSph: 'rho', radCyl: 'r' }
+  : { AZ: 'phi', POL: 'theta', radSph: 'r', radCyl: 'rho' };
+
+function detectSystem(S, conv, override) {
+  if (override !== 'auto') return override;
+  const { POL, radSph, radCyl } = names(conv);
+  const cart = S.has('x') || S.has('y');
+  const polar = S.has('r') || S.has('rho') || S.has('theta') || S.has('phi');
+  if (cart && polar) return 'mixed';
+  if (!polar) return 'cart';
+  if (S.has(POL)) return 'sph';
+  if (S.has('z')) return 'cyl';
+  if (S.has(radSph) && !S.has(radCyl)) return 'sph';
+  return 'cyl';
+}
+function roleMap(sys, conv) {
+  const { AZ, POL } = names(conv);
+  if (sys === 'cart') return { x: 'X', y: 'Y', z: 'Z' };
+  if (sys === 'cyl') return { r: 'R', rho: 'R', [AZ]: 'A', z: 'Z' };
+  if (sys === 'sph') return { r: 'P', rho: 'P', [AZ]: 'A', [POL]: 'T' };
+  return {};
+}
+const ROLES = { cart: ['X', 'Y', 'Z'], cyl: ['R', 'A', 'Z'], sph: ['P', 'A', 'T'] };
+const DEFAULT_DEP = { cart: 'Z', cyl: 'Z', sph: 'P' };
+const SYS_LABEL = { cart: 'Cartesian', cyl: 'Cylindrical', sph: 'Spherical', mixed: 'Mixed' };
+function roleDisplay(sys, role, conv) {
+  const m = conv === 'math';
+  return ({ X: 'x', Y: 'y', Z: 'z', R: m ? 'r' : 'ρ', P: m ? 'ρ' : 'r', A: m ? 'θ' : 'φ', T: m ? 'φ' : 'θ' })[role];
+}
+// Parameter ranges that cover the current view box (centered anywhere in fly mode).
+function roleRanges(box) {
+  const [cx, cy, cz] = box.c, L = box.L, TAU = 2 * Math.PI;
+  const X = [cx - L, cx + L], Y = [cy - L, cy + L], Z = [cz - L, cz + L];
+  const d0 = r => r[0] > 0 ? r[0] : r[1] < 0 ? -r[1] : 0;
+  const inXY = d0(X) === 0 && d0(Y) === 0;
+  const xy = [[X[0], Y[0]], [X[1], Y[0]], [X[1], Y[1]], [X[0], Y[1]]];
+  const R = [inXY ? 0 : Math.hypot(d0(X), d0(Y)), Math.max(...xy.map(([x, y]) => Math.hypot(x, y)))];
+  let A = [0, TAU];
+  if (!inXY) {
+    const mid = Math.atan2(cy, cx);
+    const ds = xy.map(([x, y]) => { let d = Math.atan2(y, x) - mid; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; });
+    A = [mid + Math.min(...ds) - 0.02, mid + Math.max(...ds) + 0.02];
+  }
+  const corners = [];
+  for (const x of X) for (const y of Y) for (const z of Z) corners.push([x, y, z]);
+  const P = [inXY && d0(Z) === 0 ? 0 : Math.hypot(d0(X), d0(Y), d0(Z)), Math.max(...corners.map(q => Math.hypot(...q)))];
+  const pol = corners.map(([x, y, z]) => Math.atan2(Math.hypot(x, y), z));
+  let T = [Math.max(0, Math.min(...pol) - 0.05), Math.min(Math.PI, Math.max(...pol) + 0.05)];
+  if (inXY) { if (Z[1] > 0) T[0] = 0; if (Z[0] < 0) T[1] = Math.PI; }
+  return { X, Y, Z, R, A, P, T };
+}
+function toCart(sys, v, out) {
+  if (sys === 'cart') { out[0] = v.X; out[1] = v.Y; out[2] = v.Z; }
+  else if (sys === 'cyl') { out[0] = v.R * Math.cos(v.A); out[1] = v.R * Math.sin(v.A); out[2] = v.Z; }
+  else { const st = Math.sin(v.T); out[0] = v.P * st * Math.cos(v.A); out[1] = v.P * st * Math.sin(v.A); out[2] = v.P * Math.cos(v.T); }
+  return out;
+}
+
+// ───────────────────────── analysis ─────────────────────────
+const err = msg => ({ kind: 'error', msg });
+function analyze(row, rw) {
+  const s = rw.s.trim();
+  if (!s) return { kind: 'empty' };
+  const conv = state.conv;
+  try {
+    if (/[<>]/.test(s)) return analyzeRegion(row, s, conv);
+    let sides = s.replace(/==/g, '=').split('=');
+    if (sides.length === 2 && sides[0].trim() && !sides[1].trim()) { // "1+1 =" asks for the answer; "z =" is unfinished
+      if ([...symbolsOf(parse(sides[0]))].some(n => COORDS.includes(n))) return err('Something is missing on one side of the =.');
+      sides = [sides[0]];
+    }
+    if (sides.length > 2) return err('Use only one = per line.');
+    if (sides.some(x => !x.trim())) return err('Something is missing on one side of the =.');
+    const nodes = sides.map(parse);
+    const types = nodes.map(typeOf);
+    if (nodes.length === 1 && types[0].t === 'vec') {
+      // a vector-valued expression: (x, y, z), A(…), A B (…), (…) + (…) …
+      if (types[0].n !== 3 && types[0].n !== 2) return err(`This makes a vector with ${types[0].n} entries — a point in space needs 3.`);
+      const syms = symbolsOf(nodes[0]);
+      const coordsUsed = [...syms].filter(n => COORDS.includes(n));
+      if (coordsUsed.length) return err(`Inside ( , , ) use t for a curve or u, v for a surface — found ${greek(coordsUsed.join(', '))}.`);
+      const params = PARAMS.filter(p => syms.has(p));
+      if (params.length === 3) return err('Use at most two parameters: u and v.');
+      const free = [...syms].filter(n => !PARAMS.includes(n) && !(n in CONSTS));
+      const kind = params.length === 0 ? 'point' : params.length === 1 ? 'curve' : 'psurface';
+      let vec = cl(nodes[0]);
+      if (types[0].n === 2) { const v2 = vec; vec = q => { const v = v2(q); return isArr(v) ? [v[0], v[1], 0] : v; }; }
+      return { kind, vec, params, free, reads: fmtNode(nodes[0]), dim2: types[0].n === 2, notes: types[0].n === 2 ? ['in the xy-plane'] : [] };
+    }
+    if (types.some(t => t.t === 'mat')) return err("That's a matrix on its own — multiply it by a vector, like A(1, 2, 3), to draw something.");
+    if (types.some(t => t.t === 'vec')) return err('A vector can only be drawn on its own line, like (cos t, sin t, 0).');
+
+    if (nodes.length === 2 && nodes[0].type === 'SymbolNode' && !COORDS.includes(nodes[0].name)) {
+      const name = nodes[0].name;
+      if (name in CONSTS) return err(`${greek(name)} is a built-in constant.`);
+      const rs = symbolsOf(nodes[1]);
+      if ([...rs].some(n => COORDS.includes(n)))
+        return err(`${name} isn't a coordinate. To graph, put x, y, z, r, ρ, θ or φ on the left — e.g. z = ${fmtNode(nodes[1])}`);
+      const rhs = nodes[1];
+      if (typeOf(rhs).t !== 'num') return err(`${name} = … has to be a number. To draw a vector, put it on its own line, like ${fmtNode(rhs)}.`);
+      const literal = rhs.type === 'ConstantNode' || (rhs.type === 'OperatorNode' && rhs.fn === 'unaryMinus' && rhs.args[0].type === 'ConstantNode');
+      return { kind: literal ? 'slider' : 'define', name, fn: cl(rhs), free: [...rs].filter(n => !(n in CONSTS)), reads: `${name} = ${fmtNode(rhs)}` };
+    }
+
+    const syms = new Set(nodes.flatMap(n => [...symbolsOf(n)]));
+    const S = new Set([...syms].filter(n => COORDS.includes(n)));
+    const free = [...syms].filter(n => !COORDS.includes(n) && !(n in CONSTS));
+    if (!S.size && nodes.length === 1) return { kind: 'calc', fn: cl(nodes[0]), free, reads: fmtNode(nodes[0]) }; // plain arithmetic
+    if (!S.size) return err('No coordinates here — include x, y, z, r, ρ, θ or φ.');
+    let sys = detectSystem(S, conv, row.override);
+    let map = roleMap(sys, conv);
+    if (sys !== 'mixed' && [...S].some(n => !(n in map))) { sys = 'mixed'; map = {}; }
+    const userName = role => { for (const n of S) if (map[n] === role) return GREEK[n] || n; return roleDisplay(sys, role, conv); };
+    const notes = [];
+    if (sys === 'sph' && S.has(names(conv).radCyl)) notes.push(`${GREEK[names(conv).radCyl] || names(conv).radCyl} read as spherical radius`);
+    if (sys === 'cyl' && S.has(names(conv).radSph)) notes.push(`${GREEK[names(conv).radSph] || names(conv).radSph} read as cylindrical radius`);
+
+    const explicit = (dep, node) => {
+      const params = ROLES[sys].filter(r => r !== dep);
+      return {
+        kind: 'explicit', sys, map, dep, params, fn: cl(node), free, notes,
+        form: `${userName(dep)} = f(${params.map(userName).join(', ')})`,
+        reads: `${userName(dep)} = ${fmtNode(node)}`,
+      };
+    };
+    if (nodes.length === 1) {
+      if (sys === 'mixed') return err('Mixed coordinates need an equation — add “= …”.');
+      const dep = DEFAULT_DEP[sys];
+      if ([...S].some(n => map[n] === dep)) return err('Add an = sign so I know what to solve for.');
+      return explicit(dep, nodes[0]);
+    }
+    if (sys !== 'mixed') {
+      for (const [a, b] of [[0, 1], [1, 0]]) {
+        const n = nodes[a];
+        if (n.type === 'SymbolNode' && map[n.name]) {
+          const role = map[n.name];
+          if (![...symbolsOf(nodes[b])].some(m => map[m] === role)) return explicit(role, nodes[b]);
+        }
+      }
+    }
+    const f = cl(nodes[0]), g = cl(nodes[1]);
+    const usesAz = sys === 'mixed' ? (S.has('theta') || S.has('phi')) : [...S].some(n => map[n] === 'A');
+    return {
+      kind: 'implicit', sys, map, fn: s => f(s) - g(s), free, notes, usesAz,
+      form: sys === 'mixed' ? 'implicit, solved in x, y, z' : 'implicit surface',
+      reads: `${fmtNode(nodes[0])} = ${fmtNode(nodes[1])}`,
+    };
+  } catch (e) {
+    return err(e.message);
+  }
+}
+
+// Inequalities: each comparison becomes g(s) where g < 0 means "inside"; several
+// conditions (chained, or joined by "and" / commas) intersect via max().
+const OPS = { '<': '<', '>': '>', '<=': '≤', '>=': '≥' };
+function analyzeRegion(row, s, conv) {
+  const clauses = splitTop(s, [';', ',']).map(c => c.trim()).filter(Boolean);
+  const gs = [], reads = [], allNodes = [];
+  for (const c of clauses) {
+    const parts = c.split(/(<=|>=|<|>)/);
+    if (parts.length < 3 || parts.length > 5) return err('Write a condition like z ≤ x² + y² or 1 < ρ < 2.');
+    const exprs = parts.filter((_, i) => i % 2 === 0);
+    if (exprs.some(p => !p.trim())) return err('Something is missing on one side of the inequality.');
+    if (exprs.some(p => p.includes('='))) return err('Mixing = and < in one condition — split them with “and”.');
+    const nodes = exprs.map(parse); allNodes.push(...nodes);
+    const fns = nodes.map(cl);
+    for (let i = 1; i < parts.length; i += 2) {
+      const A = fns[(i - 1) / 2], B = fns[(i + 1) / 2];
+      gs.push(parts[i][0] === '<' ? q => A(q) - B(q) : q => B(q) - A(q));
+    }
+    reads.push(nodes.map((n, i) => fmtNode(n) + (i < nodes.length - 1 ? ` ${OPS[parts[2 * i + 1]]} ` : '')).join(''));
+  }
+  const syms = new Set(allNodes.flatMap(n => [...symbolsOf(n)]));
+  const S = new Set([...syms].filter(n => COORDS.includes(n)));
+  const free = [...syms].filter(n => !COORDS.includes(n) && !(n in CONSTS));
+  if (!S.size) return err('No coordinates here — include x, y, z, r, ρ, θ or φ.');
+  let sys = detectSystem(S, conv, row.override), map = roleMap(sys, conv);
+  if (sys !== 'mixed' && [...S].some(n => !(n in map))) { sys = 'mixed'; map = {}; }
+  const fn = gs.length === 1 ? gs[0] : q => {
+    let m = -Infinity;
+    for (const g of gs) { const v = g(q); if (Number.isNaN(v)) return NaN; if (v > m) m = v; }
+    return m;
+  };
+  return { kind: 'region', sys, map, fn, gs, free, notes: [], form: 'solid region', reads: reads.join(' and ') };
+}
+
+// Set-builder notation.
+//   {(x, y, z) : …}  — the variables before the colon fix the coordinate system; one equation draws
+//                      a surface and any inequalities trim it (no equation → a solid region).
+//   {(f(t), g(t), h(t)) : t ∈ [a, b]} — the image of a parametrisation, with its range.
+const isSetText = t => /^\s*\{[\s\S]*\}\s*$/.test(t) && splitTop(t.trim().slice(1, -1), [':']).length > 1;
+function analyzeSet(row, text, userNames) {
+  const inner = text.trim().slice(1, -1), k = splitTop(inner, [':'])[0].length;
+  let head = inner.slice(0, k).trim().replace(/ℝ/g, 'R'), cond = inner.slice(k + 1).trim();
+  head = head.replace(/\s*(in|∈)\s*R\s*(\^\s*\(?\s*\d\s*\)?)?\s*$/, '').trim();
+  if (!head) return err('Start the set with a point, like {(x, y, z) : …}.');
+  if (!cond) return err('Add a condition after the colon, like x² + y² + z² = 1.');
+  const conv = state.conv, hrw = rewrite(head, userNames);
+  let hnode;
+  try { hnode = parse(hrw.s); } catch (e) { return err('Start the set with a point, like {(x, y, z) : …}.'); }
+  // {(a, b, c) : …} with letters that aren't coordinates: read them as Cartesian x, y, z
+  const nm = hnode.type === 'ArrayNode' && (hnode.items.length === 2 || hnode.items.length === 3) && hnode.items.every(n => n.type === 'SymbolNode' && !(n.name in CONSTS) && !MATS[n.name]) ? hnode.items.map(n => n.name) : null;
+  if (nm && !nm.every(n => COORDS.includes(n)) && new Set(nm).size === nm.length) {
+    const to = nm.length === 3 ? ['x', 'y', 'z'] : ['x', 'y'], shown = nm.map(n => GREEK[n] || n).join(', ');
+    const crw = rewrite(cond, new Set([...userNames, ...nm]));
+    const stray = (crw.s.match(/[A-Za-z_][A-Za-z0-9_]*/g) || []).find(w => COORDS.includes(w) && !nm.includes(w));
+    if (stray) return err(`This set's points are (${shown}) — ${greek(stray)} isn't one of them.`);
+    let c2 = crw.s;
+    nm.forEach((n, i) => { c2 = c2.replace(new RegExp(`\\b${n}\\b`, 'g'), `__q${i}`); });
+    nm.forEach((n, i) => { c2 = c2.replace(new RegExp(`__q${i}\\b`, 'g'), to[i]); });
+    const info = analyzeSet(row, `{(${to.join(', ')}) : ${c2}}`, userNames);
+    if (info.kind === 'error') return info;
+    info.notes = (info.notes || []).filter(q => !q.startsWith('set of')).concat([`(${shown}) read as Cartesian (${to.join(', ')})${nm.length === 2 ? ' in the xy-plane' : ''}`]);
+    delete info.coordSys; info.coordNames = nm; info.cartRenamed = true;
+    info.rwNotes = crw.notes.concat(hrw.notes);
+    return info;
+  }
+  if (hnode.type === 'ArrayNode' && hnode.items.length === 2 && hnode.items.every(n => n.type === 'SymbolNode' && ['x', 'y', 'r', 'rho', 'theta', 'phi'].includes(n.name))) {
+    return analyzePlaneSet(hnode.items.map(n => n.name), cond, userNames, hrw);
+  }
+  const flat2 = hnode.type === 'ArrayNode' && hnode.items.length === 2;
+  if (flat2) hrw.s = hrw.s.replace(/\]\s*$/, ',0]'); // (f(t), g(t)) lies in the xy-plane
+  if (hnode.type === 'ArrayNode' && hnode.items.length === 3 && hnode.items.every(n => n.type === 'SymbolNode' && COORDS.includes(n.name))) {
+    const names = hnode.items.map(n => n.name), S = new Set(names);
+    let sys;
+    if (S.has('x') && S.has('y') && S.has('z')) sys = 'cart';
+    else if (S.has('z') && S.size === 3) sys = 'cyl';
+    else if (S.has('theta') && S.has('phi')) sys = 'sph';
+    else return err('Use (x, y, z), (r, θ, z) or (ρ, θ, φ) before the colon.');
+    const pseudo = { override: sys }, crw = rewrite(cond, userNames);
+    const azName = conv === 'math' ? 'theta' : 'phi', ang = names.find(n => n === 'theta' || n === 'phi');
+    if (sys === 'cyl' && ang && ang !== azName) // e.g. (ρ, φ, z) in Math mode: φ is this set's azimuth
+      crw.s = crw.s.replace(/\b(theta|phi)\b/g, w => (w === ang ? azName : ang));
+    const clauses = splitTop(crw.s, [';', ',']).map(c => c.trim()).filter(Boolean);
+    const eqs = clauses.filter(c => !/[<>]/.test(c)), ineqs = clauses.filter(c => /[<>]/.test(c));
+    let info;
+    if (!eqs.length) info = analyzeRegion(pseudo, ineqs.join(';'), conv);
+    else if (eqs.length > 1) return err('A set can have one equation — use inequalities like z ≥ 0 to cut it down.');
+    else {
+      info = analyze(pseudo, { s: eqs[0] });
+      if (ineqs.length && info.kind !== 'error') {
+        if (info.kind !== 'explicit' && info.kind !== 'implicit') return err('Inequalities can only trim a surface.');
+        const R = analyzeRegion(pseudo, ineqs.join(';'), conv);
+        if (R.kind === 'error') return R;
+        info.restrict = R;
+        info.free = [...new Set([...info.free, ...R.free])];
+        info.reads = `${info.reads}, ${R.reads}`;
+        info.form += ', trimmed';
+      }
+    }
+    if (info.kind !== 'error') { info.notes = (info.notes || []).concat([`set of (${names.map(n => GREEK[n] || n).join(', ')})`]); info.coordSys = sys; info.coordNames = names; }
+    info.rwNotes = crw.notes.concat(hrw.notes);
+    return info;
+  }
+  // image of a parametrisation: the conditions give each parameter's range
+  const ranges = {};
+  for (const c of splitTop(cond.replace(/\band\b|&&|∧/g, ';'), [';', ',']).map(c => c.trim()).filter(Boolean)) {
+    let m = /^([tuv])\s*(?:in|∈)\s*[\[(]([\s\S]+)[\])]$/.exec(c);
+    if (m) { const [a, b] = splitTop(m[2], [',']); if (b === undefined) return err(`Give ${m[1]} a range like ${m[1]} ∈ [0, 2π].`); ranges[m[1]] = [a.trim(), b.trim()]; continue; }
+    m = /^([\s\S]+?)<=?\s*([tuv])\s*<=?([\s\S]+)$/.exec(c);
+    if (m) { ranges[m[2]] = [m[1].trim(), m[3].trim()]; continue; }
+    return err('Give each parameter a range, like t ∈ [0, 2π] or 0 ≤ t ≤ 2π.');
+  }
+  const info = analyze({ override: 'auto' }, hrw);
+  if (info.kind === 'error') return info;
+  if (!['curve', 'psurface', 'point'].includes(info.kind)) return err('Before the colon, use (x, y, z) or a point that depends on t (or u, v).');
+  const extra = Object.keys(ranges).filter(p => !info.params.includes(p));
+  if (extra.length) return err(`${extra.join(', ')} isn't used in the point before the colon.`);
+  info.setRanges = ranges;
+  if (flat2) info.dim2 = true;
+  info.notes = (info.notes || []).concat(['set of points']);
+  info.rwNotes = hrw.notes;
+  return info;
+}
+// {(x, y) : …} or {(r, θ) : …}: a set in the plane, drawn flat in z = 0.
+function analyzePlaneSet(names, cond, userNames, hrw) {
+  const S = new Set(names);
+  if (!((S.has('x') && S.has('y')) || ((S.has('r') || S.has('rho')) && (S.has('theta') || S.has('phi')))))
+    return err('Use (x, y) or (r, θ) before the colon.');
+  const crw = rewrite(cond, userNames);
+  const clauses = splitTop(crw.s, [';', ',']).map(c => c.trim()).filter(Boolean);
+  const eqs = clauses.filter(c => !/[<>]/.test(c)), ineqs = clauses.filter(c => /[<>]/.test(c));
+  if (eqs.length > 1) return err('A set can have one equation — use inequalities to cut it down.');
+  const allowed = new Set(names);
+  const checkVars = syms => {
+    const bad = [...syms].filter(n => COORDS.includes(n) && !allowed.has(n));
+    if (bad.length) throw new Error(`This set lives in the (${names.map(n => GREEK[n] || n).join(', ')}) plane — ${greek(bad.join(', '))} isn't one of its variables.`);
+  };
+  try {
+    const info = { kind: 'plane2d', dim2: true, coordSys: (S.has('x') ? 'cart2' : 'polar2'), coordNames: names, free: [], notes: [`set of (${names.map(n => GREEK[n] || n).join(', ')}) in the xy-plane`], rwNotes: crw.notes.concat(hrw.notes) };
+    const reads = [];
+    if (eqs.length) {
+      const sides = eqs[0].split('=');
+      if (sides.length !== 2 || sides.some(x => !x.trim())) return err('Write the equation with one =, like x² + y² = 1.');
+      const nodes = sides.map(parse);
+      if (nodes.some(n => typeOf(n).t !== 'num')) return err('Conditions have to be about numbers, not vectors.');
+      const syms = new Set(nodes.flatMap(n => [...symbolsOf(n)]));
+      checkVars(syms);
+      if (![...syms].some(n => allowed.has(n))) return err(`Use ${names.map(n => GREEK[n] || n).join(' or ')} in the equation.`);
+      const f = cl(nodes[0]), g = cl(nodes[1]);
+      info.eq = q => f(q) - g(q);
+      info.eqAngle = syms.has('theta') || syms.has('phi');
+      info.free.push(...[...syms].filter(n => !COORDS.includes(n) && !(n in CONSTS)));
+      reads.push(`${fmtNode(nodes[0])} = ${fmtNode(nodes[1])}`);
+      info.form = 'curve';
+    }
+    if (ineqs.length) {
+      const R = analyzeRegion({ override: 'auto' }, ineqs.join(';'), state.conv);
+      if (R.kind === 'error') return R;
+      checkVars(new Set(ineqs.flatMap(c => [...symbolsOf(parse(c.replace(/<=|>=|<|>/g, '+')))])));
+      info.free.push(...R.free);
+      reads.push(R.reads);
+      if (info.eq) { info.restrict2 = R.fn; info.form = 'curve, trimmed'; } else { info.fn = R.fn; info.form = 'region'; }
+    }
+    info.free = [...new Set(info.free)];
+    info.reads = reads.join(', ');
+    return info;
+  } catch (e) { return err(e.message); }
+}
+function buildPlane2D(info, defs, color) {
+  const L = state.L, m = Math.max(40, Math.round(Q().grid * 1.4)), Lb = L * 0.999, z0 = L * 0.002;
+  const s = Object.assign({}, defs);
+  const at = (x, y) => { let az = Math.atan2(y, x); if (az < 0) az += 2 * Math.PI; s.x = x; s.y = y; s.z = 0; s.r = s.rho = Math.hypot(x, y); s.theta = s.phi = az; };
+  const ev = f => (x, y) => { at(x, y); const v = f(s); return Number.isFinite(v) ? v : NaN; };
+  const to3 = (x, y) => [x, y, z0], grp = new THREE.Group();
+  if (info.eq) {
+    const segs = [];
+    contour2D(m, -Lb, Lb, ev(info.eq), to3, segs, info.eqAngle ? Math.PI : Infinity);
+    let out = segs;
+    if (info.restrict2) {
+      const h = ev(info.restrict2), keep = [];
+      for (let i = 0; i + 5 < segs.length; i += 6) {
+        const a = segs.slice(i, i + 3), b = segs.slice(i + 3, i + 6), ha = h(a[0], a[1]), hb = h(b[0], b[1]);
+        const ia = ha <= 0, ib = hb <= 0;
+        if (ia && ib) keep.push(...a, ...b);
+        else if (ia !== ib && Number.isFinite(ha) && Number.isFinite(hb)) {
+          const t = ha / (ha - hb); keep.push(...(ia ? a : b), ...a.map((q, k) => q + (b[k] - q) * t));
+        }
+      }
+      out = keep;
+    }
+    if (out.length) grp.add(fatLines(out, color, 3));
+    return grp;
+  }
+  // a region: translucent fill, bold border where it meets its boundary or the edge of the graph
+  const G = ev(info.fn), N1 = m + 1, st = 2 * Lb / m, P = [], H = [];
+  for (let i = 0; i < N1; i++) for (let j = 0; j < N1; j++) {
+    const x = -Lb + i * st, y = -Lb + j * st, v = G(x, y);
+    P.push([x, y, z0]); H.push(Number.isNaN(v) ? 1e3 : v);
+  }
+  const pos = [], nor = [], up = [0, 0, 1];
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
+    const q = [i * N1 + j, (i + 1) * N1 + j, (i + 1) * N1 + j + 1, i * N1 + j + 1];
+    for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+      if (H[a] > 0 && H[b] > 0 && H[c] > 0) continue;
+      clipTri([P[a], P[b], P[c]], [up, up, up], [H[a], H[b], H[c]], pos, nor, null);
+    }
+  }
+  if (pos.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    const fill = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.32, depthWrite: false, shininess: 10, clippingPlanes: GEN.planes }));
+    fill.userData.pass = 1; grp.add(fill);
+  }
+  const rim = [];
+  contour2D(m, -Lb, Lb, G, to3, rim);
+  for (const fx of [t => [t, -Lb], t => [t, Lb], t => [-Lb, t], t => [Lb, t]]) {
+    let t0 = -Lb, g0 = G(...fx(t0));
+    for (let k = 1; k <= m; k++) {
+      const t1 = -Lb + 2 * Lb * k / m, g1 = G(...fx(t1)), in0 = g0 <= 0, in1 = g1 <= 0;
+      if (in0 && in1) rim.push(...to3(...fx(t0)), ...to3(...fx(t1)));
+      else if (in0 !== in1 && Number.isFinite(g0) && Number.isFinite(g1)) rim.push(...to3(...fx(in0 ? t0 : t1)), ...to3(...fx(t0 + (t1 - t0) * g0 / (g0 - g1))));
+      t0 = t1; g0 = g1;
+    }
+  }
+  if (rim.length) grp.add(fatLines(rim, color, 2.4));
+  return grp;
+}
+// ── Coordinate converter for sets ──
+// Rewrites {(ρ, θ, φ) : …} as the same set in another system by substituting coordinates,
+// recognising x² + y² + z² = ρ², x² + y² = r² and friends, then tidying with math.simplify.
+const SYS_NAME = { cart: 'Cartesian', cyl: 'Cylindrical', sph: 'Spherical', cart2: 'Cartesian', polar2: 'Polar' };
+const convTargets = sys => (sys === 'cart2' ? ['polar2'] : sys === 'polar2' ? ['cart2'] : ['cart', 'cyl', 'sph'].filter(t => t !== sys));
+const roleNames = conv => {
+  const m = conv === 'math';
+  return {
+    cart: { X: 'x', Y: 'y', Z: 'z' }, cyl: { R: m ? 'r' : 'rho', A: m ? 'theta' : 'phi', Z: 'z' },
+    sph: { P: m ? 'rho' : 'r', A: m ? 'theta' : 'phi', T: m ? 'phi' : 'theta' },
+    cart2: { X: 'x', Y: 'y' }, polar2: { R: 'r', A: 'theta' },
+  };
+};
+const HEAD_ORDER = { cart: ['X', 'Y', 'Z'], cyl: ['R', 'A', 'Z'], sph: ['P', 'A', 'T'], cart2: ['X', 'Y'], polar2: ['R', 'A'] };
+const THETA_OF = 'pi - 2*atan(Y/(sqrt(X^2+Y^2)-X))'; // the angle around z in [0, 2π), no atan2 needed
+const SUBS = {
+  'cart>sph': { X: 'P*sin(T)*cos(A)', Y: 'P*sin(T)*sin(A)', Z: 'P*cos(T)' },
+  'cart>cyl': { X: 'R*cos(A)', Y: 'R*sin(A)', Z: 'Z' },
+  'cyl>cart': { R: 'sqrt(X^2+Y^2)', A: THETA_OF, Z: 'Z' },
+  'cyl>sph': { R: 'P*sin(T)', A: 'A', Z: 'P*cos(T)' },
+  'sph>cart': { P: 'sqrt(X^2+Y^2+Z^2)', A: THETA_OF, T: 'acos(Z/sqrt(X^2+Y^2+Z^2))' },
+  'sph>cyl': { P: 'sqrt(R^2+Z^2)', A: 'A', T: 'acos(Z/sqrt(R^2+Z^2))' },
+  'cart2>polar2': { X: 'R*cos(A)', Y: 'R*sin(A)' },
+  'polar2>cart2': { R: 'sqrt(X^2+Y^2)', A: THETA_OF },
+};
+const SQUARED = { 'sph>cart': { P: 'X^2+Y^2+Z^2' }, 'sph>cyl': { P: 'R^2+Z^2' }, 'cyl>cart': { R: 'X^2+Y^2' }, 'cyl>sph': { R: 'P^2*sin(T)^2' }, 'polar2>cart2': { R: 'X^2+Y^2' } };
+const SUMSQ = { 'cart>sph': [[['X', 'Y', 'Z'], 'P^2'], [['X', 'Y'], 'P^2*sin(T)^2']], 'cart>cyl': [[['X', 'Y'], 'R^2']], 'cart2>polar2': [[['X', 'Y'], 'R^2']] };
+const tgt = e => parse(e.replace(/\b([XYZPRAT])\b/g, '__t$1')); // __s…/__t… placeholders can't clash with user names
+const unparen = t => (t && t.type === 'ParenthesisNode' ? unparen(t.content) : t);
+const isSq = (t, name) => {
+  t = unparen(t);
+  if (!t || t.type !== 'OperatorNode' || t.fn !== 'pow') return false;
+  const b = unparen(t.args[0]), e = unparen(t.args[1]);
+  return b.type === 'SymbolNode' && b.name === name && e.type === 'ConstantNode' && Number(e.value) === 2;
+};
+// cos θ = x/√(x²+y²) etc., so r = 1 + cos θ becomes √(x²+y²) = 1 + x/√(x²+y²) instead of arctans
+const TRIG = {
+  'cyl>cart': { cosA: 'X/sqrt(X^2+Y^2)', sinA: 'Y/sqrt(X^2+Y^2)' },
+  'polar2>cart2': { cosA: 'X/sqrt(X^2+Y^2)', sinA: 'Y/sqrt(X^2+Y^2)' },
+  'sph>cart': { cosA: 'X/sqrt(X^2+Y^2)', sinA: 'Y/sqrt(X^2+Y^2)', cosT: 'Z/sqrt(X^2+Y^2+Z^2)', sinT: 'sqrt(X^2+Y^2)/sqrt(X^2+Y^2+Z^2)' },
+  'sph>cyl': { cosT: 'Z/sqrt(R^2+Z^2)', sinT: 'R/sqrt(R^2+Z^2)' },
+};
+const SIMPLIFY_RULES = () => math.simplify.rules.concat(['sin(n)^2 + cos(n)^2 -> 1', 'cos(n)^2 + sin(n)^2 -> 1', 'n1*sin(n2)^2 + n1*cos(n2)^2 -> n1', 'n1*cos(n2)^2 + n1*sin(n2)^2 -> n1']);
+function convertExpr(node, key, srcRole) {
+  const M = math;
+  // 1. source coordinates → placeholders s_<role>
+  let n = node.transform(q => (q.type === 'SymbolNode' && srcRole[q.name] ? new M.SymbolNode('__s' + srcRole[q.name]) : q));
+  // 2. whole sums of squares (x² + y² + z² → ρ²) and squared radii (ρ² → x² + y² + z²)
+  const sums = SUMSQ[key] || [], sq = SQUARED[key] || {};
+  const rw = q => {
+    if (q.type === 'OperatorNode' && q.fn === 'add') {
+      const terms = [], flat = t => (t.type === 'OperatorNode' && t.fn === 'add' ? t.args.forEach(flat) : terms.push(t));
+      flat(q);
+      for (const [roles, rep] of sums) {
+        const idx = roles.map(r => terms.findIndex(t => isSq(t, '__s' + r)));
+        if (idx.every(i => i >= 0)) { idx.sort((a, b) => b - a).forEach(i => terms.splice(i, 1)); terms.push(tgt(rep)); }
+      }
+      const mapped = terms.map(t => rw(t));
+      return mapped.reduce((a, b) => new M.OperatorNode('+', 'add', [a, b]));
+    }
+    for (const r in sq) if (isSq(q, '__s' + r)) return new M.ParenthesisNode(tgt(sq[r]));
+    const trig = TRIG[key];
+    if (trig && q.type === 'FunctionNode' && (q.fn.name === 'cos' || q.fn.name === 'sin') && q.args.length === 1) {
+      const a = unparen(q.args[0]), k = a.type === 'SymbolNode' && a.name.startsWith('__s') ? q.fn.name + a.name.slice(3) : null;
+      if (k && trig[k]) return new M.ParenthesisNode(tgt(trig[k]));
+    }
+    return q.map(rw);
+  };
+  n = rw(n);
+  // 3. substitute what's left
+  const sub = SUBS[key];
+  n = n.transform(q => (q.type === 'SymbolNode' && q.name.startsWith('__s') && sub[q.name.slice(3)] ? new M.ParenthesisNode(tgt(sub[q.name.slice(3)])) : q));
+  try { n = M.simplify(n, SIMPLIFY_RULES()); } catch (e) { try { n = M.simplify(n); } catch (e2) { /* keep the unsimplified form */ } }
+  // 4. √(ρ²) is just ρ for a radius
+  n = n.transform(q => (q.type === 'FunctionNode' && q.fn.name === 'sqrt' && q.args[0] && (isSq(q.args[0], '__tP') || isSq(q.args[0], '__tR')) ? q.args[0].args[0] : q));
+  return n;
+}
+// LaTeX that MathQuill can display (and that reads back the same way).
+const TEX_FN = { sin: '\\sin', cos: '\\cos', tan: '\\tan', sec: '\\sec', csc: '\\csc', cot: '\\cot', sinh: '\\sinh', cosh: '\\cosh', tanh: '\\tanh', asin: '\\arcsin', acos: '\\arccos', atan: '\\arctan', log: '\\ln', log10: '\\log' };
+function toTex(n, nameOf) {
+  const W = (t, min) => (t.p < min ? { s: `\\left(${t.s}\\right)`, p: 9 } : t);
+  const T = q => {
+    switch (q.type) {
+      case 'ParenthesisNode': return T(q.content);
+      case 'ConstantNode': { const v = Number(q.value); return { s: numTex(v), p: 9, num: true }; }
+      case 'SymbolNode': { const nm = nameOf(q.name); return { s: GREEK[nm] && nm !== 'roh' ? '\\' + nm : nm.replace(/_([A-Za-z0-9]+)/, '_{$1}'), p: 9, long: nm.length > 1 && !GREEK[nm] }; }
+      case 'ArrayNode': return { s: `\\left(${q.items.map(i => T(i).s).join(',')}\\right)`, p: 9 };
+      case 'FunctionNode': {
+        const nm = q.fn.name, a = q.args.map(T);
+        if (nm === 'sqrt') return { s: `\\sqrt{${a[0].s}}`, p: 9 };
+        if (nm === 'nthRoot') return { s: `\\sqrt[${a[1].s}]{${a[0].s}}`, p: 9 };
+        if (nm === 'abs') return { s: `\\left|${a[0].s}\\right|`, p: 9 };
+        if (nm === 'exp') return { s: `e^{${a[0].s}}`, p: 8 };
+        return { s: `${TEX_FN[nm] || nm}\\left(${a.map(x => x.s).join(',')}\\right)`, p: 9 };
+      }
+      case 'OperatorNode': {
+        const a = q.args.map(T);
+        switch (q.fn) {
+          case 'add': return { s: `${a[0].s}+${W(a[1], 2).s}`, p: 1 };
+          case 'subtract': return { s: `${a[0].s}-${W(a[1], 2).s}`, p: 1 };
+          case 'unaryMinus': return { s: `-${W(a[0], 3).s}`, p: 2 };
+          case 'unaryPlus': return a[0];
+          case 'multiply': {
+            const L = W(a[0], 3), R = W(a[1], 3);
+            const dot = R.num || /^[\d.]/.test(R.s) || (L.long && R.long) || (a[0].num && /^-/.test(R.s));
+            return { s: `${L.s}${dot ? '\\cdot ' : ''}${R.s}`, p: 3 };
+          }
+          case 'divide': return { s: `\\frac{${a[0].s}}{${a[1].s}}`, p: 9 };
+          case 'pow': return { s: `${W(a[0], 9).s}^{${a[1].s}}`, p: 8 };
+          case 'mod': return { s: `${W(a[0], 3).s} mod ${W(a[1], 3).s}`, p: 3 };
+          case 'factorial': return { s: `${W(a[0], 9).s}!`, p: 8 };
+        }
+      }
+    }
+    throw new Error('Can’t write this in the new coordinates.');
+  };
+  return T(n).s;
+}
+function convertSet(row, target) {
+  const conv = state.conv, info = row.info, src = info.coordSys, key = `${src}>${target}`;
+  const named = /^\s*[A-Za-z]+(?:_[A-Za-z0-9]+)?\s*=(?!=)\s*/.exec(row.text), text = named ? row.text.slice(named[0].length) : row.text;
+  const ms = splitMappedSet(text), setText = ms ? ms.set : text.trim();
+  const inner = setText.slice(1, -1), cond = inner.slice(splitTop(inner, [':'])[0].length + 1);
+  const userNames = new Set([...Object.keys(state.defs), ...Object.keys(MATS)]);
+  // which role each name in the source tuple plays
+  const srcRole = {}, rolesOf = roleNames(conv)[src];
+  for (const nm of info.coordNames) {
+    if (nm === 'r' || nm === 'rho') srcRole[nm] = src === 'sph' ? 'P' : 'R';
+    else if (nm === 'theta' || nm === 'phi') srcRole[nm] = src === 'sph' ? (nm === rolesOf.A ? 'A' : 'T') : 'A';
+    else srcRole[nm] = nm.toUpperCase();
+  }
+  const outNames = roleNames(conv)[target];
+  const nameOf = nm => (nm.startsWith('__t') ? outNames[nm.slice(3)] : nm);
+  const OPS_TEX = { '<': '<', '>': '>', '<=': '\\le ', '>=': '\\ge ', '=': '=' };
+  const clauses = splitTop(rewrite(cond, userNames).s, [';', ',']).map(c => c.trim()).filter(Boolean);
+  const texClauses = clauses.map(c => c.split(/(<=|>=|<|>|=)/).map((part, i) => (i % 2 ? OPS_TEX[part] : toTex(convertExpr(parse(part), key, srcRole), nameOf))).join(''));
+  const head = HEAD_ORDER[target].map(r => { const nm = outNames[r]; return GREEK[nm] ? '\\' + nm : nm; }).join(',');
+  const prefix = ms ? toTex(parse(rewrite(ms.prefix, userNames).s), nm => nm) : '';
+  return `${prefix}\\left\\{\\left(${head}\\right):${texClauses.join(',\\ ')}\\right\\}`;
+}
+// A matrix in front of a set, like A{(x, y, z) : …} or A B{…}, maps every point of the set.
+function splitMappedSet(text) {
+  const t = text.trim();
+  if (!t.endsWith('}')) return null;
+  let d = 0;
+  for (let i = t.length - 1; i >= 0; i--) {
+    const c = t[i];
+    if (')]}'.includes(c)) d++;
+    else if ('([{'.includes(c) && --d === 0) {
+      if (c !== '{') return null;
+      const prefix = t.slice(0, i).trim(), set = t.slice(i);
+      return prefix && isSetText(set) ? { prefix, set } : null;
+    }
+  }
+  return null;
+}
+function analyzeMappedSet(row, ms, userNames) {
+  const prw = rewrite(ms.prefix, userNames);
+  let node, T;
+  try { node = parse(prw.s); T = typeOf(node); } catch (e) { return err(e.message.startsWith("Couldn't") ? 'Put a matrix before the set, like A{(x, y, z) : …}.' : e.message); }
+  if (T.t !== 'mat') return err('Only a matrix can be applied to a set — make one with A = Matrix.');
+  const info = analyzeSet(row, ms.set, userNames);
+  if (info.kind === 'error') return info;
+  const planar = !!info.dim2;
+  const ok2 = planar && T.r === 2 && T.c === 2;
+  if (!ok2 && (T.r !== 3 || T.c !== 3)) return err(planar ? `A set in the plane needs a 2 × 2 or 3 × 3 matrix, not ${T.r} × ${T.c}.` : `To move points in space the matrix has to be 3 × 3, not ${T.r} × ${T.c}.`);
+  const M0 = cl(node), M = ok2 ? (q => { const a = M0(q); return [[a[0][0], a[0][1], 0], [a[1][0], a[1][1], 0], [0, 0, 1]]; }) : M0, syms = [...symbolsOf(node)].filter(n => !(n in CONSTS) && !PARAMS.includes(n));
+  info.mapM = M; info.mapName = fmtNode(node); info.mapped = true;
+  info.free = [...new Set([...(info.free || []), ...syms])];
+  if (info.vec) { const v0 = info.vec; info.vec0 = v0; info.vec = s => VMUL(M(s), v0(s)); } // curves map exactly
+  info.reads = `${info.mapName} applied to ${info.reads}`;
+  info.notes = (info.notes || []).concat([`mapped by ${info.mapName}`]);
+  if (info.form) info.form += `, mapped by ${info.mapName}`;
+  info.rwNotes = (info.rwNotes || []).concat(prw.notes);
+  return info;
+}
+// ── Functions applied to sets ──
+// A set expression: {…}, M{…}, a set's name, or f(set expression).
+const closeOf = (t, i) => { let d = 0; for (let j = i; j < t.length; j++) { if ('([{'.includes(t[j])) d++; else if (')]}'.includes(t[j]) && --d === 0) return j; } return -1; };
+function parseSetExpr(t) {
+  t = (t || '').trim();
+  if (!t) return null;
+  if (isSetText(t)) return { k: 'lit', text: t };
+  const ms = splitMappedSet(t); if (ms) return { k: 'mat', ms };
+  const nm = t.replace(/\s+/g, '');
+  if (/^[A-Za-z]+(?:_[A-Za-z0-9]+)?$/.test(nm) && SETDEFS.has(nm)) return { k: 'name', name: nm };
+  const m = /^([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*\(/.exec(t);
+  if (m && closeOf(t, m[0].length - 1) === t.length - 1) {
+    const inner = parseSetExpr(t.slice(m[0].length, -1));
+    if (inner) return { k: USERFN.has(m[1]) ? 'app' : 'nofn', fn: m[1], inner };
+  }
+  return null;
+}
+function analyzeSetExpr(row, e, userNames, seen) {
+  switch (e.k) {
+    case 'lit': { const info = analyzeSet(row, e.text, userNames); if (info.kind !== 'error') info.litText = e.text; return info; }
+    case 'mat': return analyzeMappedSet(row, e.ms, userNames);
+    case 'name': {
+      if (seen.has(e.name)) return err(`${greek(e.name)} can't be defined using itself.`);
+      const d = SETDEFS.get(e.name), info = analyzeSetExpr(row, d.expr, userNames, new Set([...seen, e.name]));
+      if (info.kind === 'error') return err(`${greek(e.name)} has a problem: ${info.msg}`);
+      if (!info.srcName) { info.srcName = e.name; if (d.expr.k === 'lit') info.setRow = d.row; }
+      info.refName = e.name; // the name as written on this line
+      return info;
+    }
+    case 'nofn': return err(`${greek(e.fn)} isn't a function yet — define it on another line, like ${e.fn}(x, y, z) = (…, …, …).`);
+    case 'app': return applyFunc(e.fn, analyzeSetExpr(row, e.inner, userNames, seen));
+  }
+  return err("Couldn't read this set.");
+}
+// f(set): check dimensions and coordinates, then send every point of the set through f.
+function applyFunc(fname, info) {
+  if (info.kind === 'error') return info;
+  const U = USERFN.get(fname);
+  if (!U || U.err || !U.out) return err(`${greek(fname)} has a problem — fix its definition first.`);
+  const nIn = U.params.length, nOut = U.out.t === 'vec' ? U.out.n : 1, d = info.dim2 ? 2 : 3;
+  const sig = `${greek(fname)} : ℝ${SUP(nIn)} → ℝ${SUP(nOut)}`, what = info.refName ? greek(info.refName) : 'this set';
+  const pts = info.coordNames ? `, with points (${info.coordNames.map(n => GREEK[n] || n).join(', ')})` : '';
+  if (nOut === 1) return err(`${sig} gives a single number, so it can't move points — make it give a point, like ${fname}(…) = (…, …, …).`);
+  if (nIn !== d) return err(`${sig} takes ${nIn} input${nIn > 1 ? 's' : ''}, but ${what} is in ℝ${SUP(d)}${pts}.`);
+  if (!info.mapped && ['cyl', 'sph', 'polar2'].includes(info.coordSys)) {
+    const target = info.coordSys === 'polar2' ? 'cart2' : 'cart', names = info.coordNames.map(n => GREEK[n] || n).join(', ');
+    return Object.assign(err(`${what === 'this set' ? 'This set' : what} is written in ${SYS_NAME[info.coordSys].toLowerCase()} coordinates (${names}), but ${greek(fname)} works on Cartesian points (${target === 'cart' ? 'x, y, z' : 'x, y'}).`), {
+      fix: { target, coordSys: info.coordSys, coordNames: info.coordNames, litText: info.litText, srcName: info.srcName || null, refName: info.refName || null, setRow: info.setRow || null },
+    });
+  }
+  const ps = U.params;
+  const F = (s, P) => {
+    const s2 = Object.create(s);
+    for (let i = 0; i < nIn; i++) s2[ps[i]] = P[i];
+    const o = U.fn(s2);
+    if (!isArr(o)) return [NaN, NaN, NaN];
+    return nOut === 3 ? o : [o[0], o[1], d === 2 ? P[2] : 0]; // a flat result stays in the xy-plane
+  };
+  if (info.vec) { // curves, parametric surfaces and points map exactly
+    if (!info.vec0) info.vec0 = info.vec;
+    const prev = info.vec; info.vec = s => { const P = prev(s); return isArr(P) ? F(s, P) : P; };
+  } else info.fmaps = (info.fmaps || []).concat([{ F, dIn: d }]);
+  info.mapped = true;
+  info.mapName = info.mapName ? `${greek(fname)}∘${greek(info.mapName)}` : greek(fname);
+  info.dim2 = nOut === 2;
+  info.free = [...new Set([...(info.free || []), ...U.free])];
+  info.reads = `${greek(fname)} applied to ${info.reads}`;
+  info.notes = (info.notes || []).filter(q => q !== 'drawn in Cartesian (x, y, z)').concat([sig, 'drawn in Cartesian (x, y, z)']);
+  if (info.form) info.form += `, mapped by ${greek(fname)}`;
+  delete info.coordSys; // the image is a new set: no Convert buttons
+  return info;
+}
+// Send each vertex of a built surface/solid through the set's functions. Normals go through the
+// Jacobian (cofactor form, so they stay on the same side as the triangles); torn triangles are dropped.
+function applyFMaps(obj, info, defs) {
+  if (!obj || !info.fmaps) return obj;
+  const s = Object.assign({}, defs), maps = info.fmaps, flat = maps[0].dIn === 2;
+  const F = (x, y, z) => { let p = [x, y, z]; for (const m of maps) p = m.F(s, p); return p; };
+  const good = p => p.length >= 3 && Math.abs(p[0]) < 1e5 && Math.abs(p[1]) < 1e5 && Math.abs(p[2]) < 1e5; // false for NaN too
+  const L = state.L, h = L * 1e-4, far = L * 0.5;
+  const torn = (a, b, a0, b0) => { const d1 = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]); return d1 > far && d1 > 20 * Math.hypot(b0[0] - a0[0], b0[1] - a0[1], b0[2] - a0[2]); };
+  const mapSegs = arr => {
+    const out = [];
+    for (let i = 0; i + 5 < arr.length; i += 6) {
+      const a0 = [arr[i], arr[i + 1], arr[i + 2]], b0 = [arr[i + 3], arr[i + 4], arr[i + 5]], a = F(...a0), b = F(...b0);
+      if (good(a) && good(b) && !torn(a, b, a0, b0)) out.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    }
+    return out;
+  };
+  const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  const done = new Map(); // the two passes share one geometry: map it once
+  obj.traverse(c => {
+    if (c.material) { c.material.clippingPlanes = GEN.planes; c.material.needsUpdate = true; }
+    const g = c.geometry;
+    if (!g) return;
+    if (done.has(g)) { c.geometry = done.get(g); return; }
+    let ng = null;
+    if (g.isLineSegmentsGeometry) { ng = new THREE.LineSegmentsGeometry(); ng.setPositions(mapSegs(g.attributes.instanceStart.data.array)); }
+    else if (c.isLineSegments) { ng = new THREE.BufferGeometry(); ng.setAttribute('position', new THREE.Float32BufferAttribute(mapSegs(g.attributes.position.array), 3)); }
+    else if (c.isMesh && g.attributes.position) {
+      const P = g.attributes.position.array, N = g.attributes.normal ? g.attributes.normal.array : null, nv = P.length / 3;
+      const Q = new Float32Array(nv * 3), NN = new Float32Array(nv * 3), ok = new Uint8Array(nv);
+      for (let i = 0; i < nv; i++) {
+        const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], p = F(x, y, z);
+        if (!good(p)) continue;
+        ok[i] = 1; Q[i * 3] = p[0]; Q[i * 3 + 1] = p[1]; Q[i * 3 + 2] = p[2];
+        const px = F(x + h, y, z), py = F(x, y + h, z);
+        const j1 = [0, 1, 2].map(k => (px[k] - p[k]) / h), j2 = [0, 1, 2].map(k => (py[k] - p[k]) / h);
+        const n0 = N ? [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]] : [0, 0, 1];
+        let n;
+        if (flat) n = cross(j1, j2).map(q => q * (n0[2] < 0 ? -1 : 1));
+        else {
+          const pz = F(x, y, z + h), j3 = [0, 1, 2].map(k => (pz[k] - p[k]) / h);
+          const a = cross(j2, j3), b = cross(j3, j1), e = cross(j1, j2);
+          n = [0, 1, 2].map(k => n0[0] * a[k] + n0[1] * b[k] + n0[2] * e[k]);
+        }
+        const len = Math.hypot(...n);
+        if (Number.isFinite(len) && len > 0) { NN[i * 3] = n[0] / len; NN[i * 3 + 1] = n[1] / len; NN[i * 3 + 2] = n[2] / len; }
+        else { NN[i * 3] = n0[0]; NN[i * 3 + 1] = n0[1]; NN[i * 3 + 2] = n0[2]; }
+      }
+      const vp = (A, i) => [A[i * 3], A[i * 3 + 1], A[i * 3 + 2]];
+      const keepTri = (a, b, c2) => ok[a] && ok[b] && ok[c2] && !torn(vp(Q, a), vp(Q, b), vp(P, a), vp(P, b)) && !torn(vp(Q, b), vp(Q, c2), vp(P, b), vp(P, c2)) && !torn(vp(Q, c2), vp(Q, a), vp(P, c2), vp(P, a));
+      const idx = [], I = g.index ? g.index.array : null, nt = I ? I.length : nv;
+      for (let t = 0; t + 2 < nt; t += 3) { const a = I ? I[t] : t, b = I ? I[t + 1] : t + 1, c2 = I ? I[t + 2] : t + 2; if (keepTri(a, b, c2)) idx.push(a, b, c2); }
+      ng = new THREE.BufferGeometry();
+      ng.setAttribute('position', new THREE.BufferAttribute(Q, 3));
+      ng.setAttribute('normal', new THREE.BufferAttribute(NN, 3));
+      ng.setIndex(idx);
+    }
+    if (ng) { done.set(g, ng); g.dispose(); c.geometry = ng; }
+  });
+  return obj;
+}
+// "Make a Cartesian copy": add the set again in Cartesian coordinates and point the function at it.
+function useCartesianCopy(row, fix) {
+  const tex = convertSet({ text: fix.litText, info: { coordSys: fix.coordSys, coordNames: fix.coordNames } }, fix.target);
+  const taken = new Set([...SETDEFS.keys(), ...USERFN.keys(), ...Object.keys(MATS), ...Object.keys(state.defs)]);
+  let name;
+  if (fix.srcName) { const base = fix.srcName + (fix.srcName.includes('_') ? 'c' : '_c'); name = base; for (let i = 2; taken.has(name); i++) name = base + i; }
+  else for (let i = 1; ; i++) if (!taken.has('S_' + i)) { name = 'S_' + i; break; }
+  let latex = row.latex;
+  if (fix.refName) {
+    const [b, sub] = fix.refName.split('_');
+    const re = new RegExp(`(?<![A-Za-z\\\\])${b}${sub ? `_(?:\\{${sub}\\}|${sub})` : ''}(?![A-Za-z0-9_])`, 'g');
+    latex = latex.replace(re, texName(name));
+  } else { // replace the set written inside the brackets
+    const i = latex.indexOf('\\left\\{');
+    let d = 0, j = i;
+    for (; j < latex.length && i >= 0; j++) {
+      if (latex.startsWith('\\left\\{', j)) d++;
+      else if (latex.startsWith('\\right\\}', j) && --d === 0) break;
+    }
+    if (i < 0 || j >= latex.length) throw new Error('could not find the set on this line');
+    latex = latex.slice(0, i) + texName(name) + latex.slice(j + '\\right\\}'.length);
+  }
+  const nr = fix.setRow && state.rows.includes(fix.setRow) ? addRow(`${texName(name)}=${tex}`, { after: fix.setRow }) : addRow(`${texName(name)}=${tex}`, { before: row });
+  setRowLatex(row, latex);
+  schedule(0);
+  return nr;
+}
+// Surfaces and solids: move the finished geometry (normals follow via the normal matrix).
+function applyMap(obj, info, defs) {
+  if (!obj || !info.mapM || info.vec0) return obj;
+  const M = info.mapM(defs);
+  if (!isArr(M) || M.flat().some(v => !Number.isFinite(v))) { info.warn = "The matrix entries can't use t when mapping a surface."; return obj; }
+  const m4 = new THREE.Matrix4().set(M[0][0], M[0][1], M[0][2], 0, M[1][0], M[1][1], M[1][2], 0, M[2][0], M[2][1], M[2][2], 0, 0, 0, 0, 1);
+  const seen = new Set(); // the two passes share one geometry
+  obj.traverse(c => { if (c.geometry && c.geometry.applyMatrix4 && !seen.has(c.geometry)) { seen.add(c.geometry); c.geometry.applyMatrix4(m4); } });
+  return obj;
+}
+function ghost(o) {
+  o.traverse(c => {
+    const m = c.material; if (!m) return;
+    m.transparent = true; m.opacity = (m.opacity ?? 1) * 0.5; m.depthWrite = false;
+  });
+  return o;
+}
+// The "before" colour for Show both: a palette colour far from the row's own.
+const beforeColor = c => { const i = PALETTE.indexOf(c); return PALETTE[((i < 0 ? 0 : i) + 3) % PALETTE.length]; };
+// Build a row's object; for a mapped set, optionally add the original set in its own colour.
+function buildRowObject(r, info, defs, build) {
+  let o = applyFMaps(applyMap(applyRestrict(build(info, defs, r.color, r), info, defs), info, defs), info, defs);
+  if (info.mapped && r.showBoth) {
+    const orig = info.vec0 ? Object.assign({}, info, { vec: info.vec0 }) : info;
+    const g = applyRestrict(build(orig, defs, beforeColor(r.color), r), orig, defs);
+    if (g) { const grp = new THREE.Group(); if (o) grp.add(o); grp.add(ghost(g)); o = grp; }
+  }
+  return o;
+}
+// Trim a built surface to where a set's inequalities hold (h ≤ 0), cutting triangles cleanly.
+function applyRestrict(obj, info, defs) {
+  if (!obj || !info.restrict) return obj;
+  const R = info.restrict, s = Object.assign({}, defs), set = scopeSetter(R, true);
+  const h = (x, y, z) => { set(s, x, y, z); const v = R.fn(s); return Number.isFinite(v) ? v : 1e3; };
+  const done = new Map(); // the two passes share one geometry: trim it once
+  obj.traverse(c => {
+    const g = c.geometry;
+    if (done.has(g)) { c.geometry = done.get(g); return; }
+    if (!g || !g.attributes.position) return;
+    const P = g.attributes.position.array, H = new Float64Array(P.length / 3);
+    for (let i = 0; i < H.length; i++) H[i] = h(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+    const vp = i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
+    const ng = new THREE.BufferGeometry();
+    if (c.isMesh && g.index && g.attributes.normal) {
+      const N = g.attributes.normal.array, I = g.index.array, pos = [], nor = [];
+      const vn = i => [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]];
+      for (let t = 0; t < I.length; t += 3) {
+        const a = I[t], b = I[t + 1], d = I[t + 2];
+        if (H[a] > 0 && H[b] > 0 && H[d] > 0) continue;
+        clipTri([vp(a), vp(b), vp(d)], [vn(a), vn(b), vn(d)], [H[a], H[b], H[d]], pos, nor, null);
+      }
+      ng.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      ng.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    } else if (c.isLineSegments) {
+      const out = [];
+      for (let i = 0; i + 1 < H.length; i += 2) {
+        const ia = H[i] <= 0, ib = H[i + 1] <= 0;
+        if (ia && ib) out.push(...vp(i), ...vp(i + 1));
+        else if (ia !== ib) {
+          const t = H[i] / (H[i] - H[i + 1]), a = vp(i), b = vp(i + 1), m = a.map((q, k) => q + (b[k] - q) * t);
+          out.push(...(ia ? a : b), ...m);
+        }
+      }
+      ng.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+    } else return;
+    done.set(g, ng); g.dispose(); c.geometry = ng;
+  });
+  return obj;
+}
+
+// ───────────────────────── state ─────────────────────────
+const PALETTE = ['#2f6fed', '#e0493f', '#169b73', '#8b4fd8', '#e0892a', '#0e9bb2'];
+// Sample counts at resolution ×1; the Resolution slider scales them (×0.5 to ×3).
+const BASE_RES = { grid: 110, iso: 46, curve: 900, ps: 90 };
+const RES_MIN = 0.5, RES_MAX = 3;
+const state = { rows: [], conv: 'math', L: 5, quality: 1, nextId: 1, colorIdx: 0, defs: {}, mode: 'orbit', render: 12, helpC: null };
+// The box everything is generated in: fixed at the origin when orbiting, following the camera when flying.
+const B = () => ({ c: [0, 0, 0], L: state.L }); // the orbit-mode graph box
+// What the mesh builders generate into: a box, its clip planes and sample counts.
+// Orbit mode uses the one graph box; fly mode calls the builders once per world chunk.
+let GEN = null;
+const genOrbit = () => ({ box: B(), planes: clipPlanes, grid: Q().grid, iso: Q().iso, fly: false });
+const Q = () => {
+  const f = state.quality;
+  return { grid: Math.round(BASE_RES.grid * f), iso: Math.round(BASE_RES.iso * f), curve: Math.round(BASE_RES.curve * f), ps: Math.round(BASE_RES.ps * f) };
+};
+
+
+const EXAMPLES = [
+  { label: 'Bumpy sphere (spherical)', tex: String.raw`\rho=2+0.4\sin\left(3\theta\right)\sin\left(2\phi\right)` },
+  { label: 'Cardioid of revolution', tex: String.raw`\rho=1.5\left(1-\cos\phi\right)` },
+  { label: 'Cone φ = π/6', tex: String.raw`\phi=\frac{\pi}{6}` },
+  { label: 'Flower column (cylindrical)', tex: String.raw`r=2+0.6\cos\left(4\theta\right)` },
+  { label: 'Ripple z = cos(2r)', tex: String.raw`z=\cos\left(2r\right)-2` },
+  { label: 'Torus (cylindrical implicit)', tex: String.raw`\left(r-3\right)^2+z^2=1` },
+  { label: 'Spiral ramp θ-driven', tex: String.raw`z=\frac{\theta}{2}-2` },
+  { label: 'Saddle (Cartesian)', tex: String.raw`z=\frac{x^2-y^2}{5}` },
+  { label: 'Egg crate', tex: String.raw`z=\sin\left(x\right)\cos\left(y\right)` },
+  { label: 'Gyroid (implicit)', tex: String.raw`\sin x\cos y+\sin y\cos z+\sin z\cos x=0` },
+  { label: 'Mixed: ρ with x', tex: String.raw`\rho=2.5+\frac{\sin\left(3x\right)}{3}` },
+  { label: 'Ice-cream cone (solid)', tex: String.raw`\rho\le3,\ \phi\le\frac{\pi}{6}` },
+  { label: 'Thick shell, cut open (solid)', tex: String.raw`2\le\rho\le3,\ y\ge0` },
+  { label: 'Cylindrical wedge (solid)', tex: String.raw`1\le r\le3,\ \theta\le\frac{3\pi}{2},\ -1\le z\le1` },
+  { label: 'Under a paraboloid (solid)', tex: String.raw`z\le3-\frac{x^2+y^2}{4}` },
+  { label: 'Helix curve', tex: String.raw`\left(3\cos\left(t\right),3\sin\left(t\right),\frac{t}{4}\right)`, ranges: { t: ['-4π', '4π'] } },
+  { label: 'Trefoil knot', tex: String.raw`\left(\sin t+2\sin\left(2t\right),\cos t-2\cos\left(2t\right),-\sin\left(3t\right)\right)` },
+  { label: 'Parametric torus (u, v)', tex: String.raw`\left(\left(3+\cos v\right)\cos u,\left(3+\cos v\right)\sin u,\sin v\right)`, ranges: { v: ['0', '2π'] } },
+  { label: 'Point', tex: String.raw`\left(1,2,3\right)` },
+];
+const exSel = document.getElementById('examples');
+EXAMPLES.forEach((e, i) => { const o = document.createElement('option'); o.value = i; o.textContent = e.label; exSel.appendChild(o); });
+
+// ───────────────────────── three.js scene ─────────────────────────
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.localClippingEnabled = true;
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 1000);
+camera.up.set(0, 0, 1);
+scene.add(camera);
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x8890a0, 0.35); hemi.position.set(0, 0, 1); scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 0.6); key.position.set(0.4, 0.8, 1); camera.add(key);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.12;
+let clipPlanes = [];
+let helpers = null;
+
+function setCamRange() {
+  if (state.mode === 'fly') { camera.near = Math.min(state.render * 0.002, Math.max(state.L * 0.01, state.render * 0.0005)); camera.far = state.render * 3; }
+  else { camera.near = state.L * 0.01; camera.far = state.L * 60; controls.maxDistance = state.L * 12; }
+  camera.updateProjectionMatrix();
+}
+function resetView() {
+  if (state.mode === 'fly') {
+    camera.position.set(1.6, 1.2, 1).normalize().multiplyScalar(Math.min(state.render * 0.6, state.L * 4)); // near the graph, not out in the fog
+    const d = camera.position.clone().negate().normalize();
+    fly.yaw = Math.atan2(d.y, d.x); fly.pitch = Math.asin(d.z);
+    return;
+  }
+  const L = state.L;
+  camera.position.set(L * 3.2, L * 2.4, L * 2.0);
+  controls.target.set(0, 0, 0); setCamRange(); controls.update();
+}
+function setClip() {
+  const { c, L } = B(), C = new THREE.Vector3(...c);
+  if (!clipPlanes.length) clipPlanes = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(n => new THREE.Plane(new THREE.Vector3(...n), 0));
+  for (const p of clipPlanes) p.constant = L * 1.0005 - p.normal.dot(C);
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))), f = x / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+function label(text, color, h, font) {
+  const c = document.createElement('canvas'), ctx = c.getContext('2d');
+  ctx.font = font; const w = Math.ceil(ctx.measureText(text).width) + 16;
+  c.width = w; c.height = 96;
+  ctx.font = font; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, 50);
+  const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sp.scale.set(h * w / 96, h, 1);
+  return sp;
+}
+function disposeObj(o) {
+  o.traverse(c => {
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) { if (c.material.map) c.material.map.dispose(); lineMats.delete(c.material); c.material.dispose(); }
+  });
+}
+function buildHelpers() {
+  if (helpers) { scene.remove(helpers); disposeObj(helpers); }
+  helpers = new THREE.Group();
+  const fly = state.mode === 'fly', C = fly && state.helpC ? state.helpC : [0, 0, 0], L = fly ? state.render : state.L, U = state.L;
+  const gridC = css('--grid'), axisC = css('--axis'), labC = css('--label'), bg = new THREE.Color(css('--canvas'));
+  scene.background = bg;
+  scene.fog = fly ? new THREE.Fog(bg, L * 0.35, L * 0.97) : null;
+  const lo = C.map(c => c - L), hi = C.map(c => c + L), has0 = a => lo[a] <= 0 && hi[a] >= 0;
+  const step = niceStep(U / 5);
+  const lineSet = (arr, color) => {
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color }));
+  };
+  if (has0(2)) {
+    const g = [];
+    for (let v = Math.ceil(lo[1] / step) * step; v <= hi[1] + 1e-9; v += step) g.push(lo[0], v, 0, hi[0], v, 0);
+    for (let v = Math.ceil(lo[0] / step) * step; v <= hi[0] + 1e-9; v += step) g.push(v, lo[1], 0, v, hi[1], 0);
+    helpers.add(lineSet(g, gridC));
+  }
+  if (!fly) helpers.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2 * L, 2 * L, 2 * L)), new THREE.LineBasicMaterial({ color: gridC })));
+  const mono = '500 44px "JetBrains Mono", ui-monospace, monospace', serif = 'italic 76px "Instrument Serif", Georgia, serif';
+  const tstep = step * 2, off = U * 0.06, th = U * 0.055;
+  const ax = [];
+  for (let a = 0; a < 3; a++) {
+    const o1 = (a + 1) % 3, o2 = (a + 2) % 3;
+    if (!has0(o1) || !has0(o2)) continue; // this axis doesn't pass through the view box
+    const p0 = [0, 0, 0], p1 = [0, 0, 0]; p0[a] = lo[a]; p1[a] = hi[a]; ax.push(...p0, ...p1);
+    if (!fly) { const q = [0, 0, 0]; q[a] = L * 1.1; const s = label('xyz'[a], labC, L * 0.13, serif); s.position.set(...q); helpers.add(s); }
+    const t0 = Math.max(lo[a], C[a] - 40 * tstep), t1 = Math.min(hi[a], C[a] + 40 * tstep);
+    for (let v = Math.ceil(t0 / tstep) * tstep; v <= t1 + 1e-9; v += tstep) {
+      if (Math.abs(v) < 1e-9) continue;
+      const q = [-off, -off, -off]; q[a] = v; if (a === 0) q[2] = 0; if (a === 1) q[2] = 0;
+      const s = label(String(+v.toFixed(4)), labC, th, mono); s.position.set(...q); helpers.add(s);
+    }
+  }
+  if (fly) { // name each axis at a few points so you know where you are
+    for (let a = 0; a < 3; a++) {
+      const o1 = (a + 1) % 3, o2 = (a + 2) % 3;
+      if (!has0(o1) || !has0(o2)) continue;
+      const q = [0, 0, 0]; q[a] = Math.max(lo[a], Math.min(hi[a], C[a] + U * 1.5)); q[o2] = U * 0.04;
+      const s = label('xyz'[a], labC, U * 0.13, serif); s.position.set(...q); helpers.add(s);
+    }
+  }
+  if (ax.length) helpers.add(lineSet(ax, axisC));
+  scene.add(helpers);
+}
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  renderer.domElement.style.width = w + 'px'; renderer.domElement.style.height = h + 'px';
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  for (const m of lineMats) m.resolution.set(w, h);
+}
+new ResizeObserver(resize).observe(view);
+
+// ───────────────────────── mesh builders ─────────────────────────
+// See-through surfaces: each shape draws its far side, then its near side on top, and shapes are
+// drawn farthest-first every frame (sortSeeThrough), so what's behind always shows through what's in front.
+function surfaceMaterial(color, side, opacity = 0.78) {
+  return new THREE.MeshPhongMaterial({
+    color, side, shininess: 28, specular: 0x202020, transparent: true, opacity,
+    clippingPlanes: GEN.planes, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+  });
+}
+function twoPass(geo, color, opacity) {
+  const back = new THREE.Mesh(geo, surfaceMaterial(color, THREE.BackSide, opacity));
+  const front = new THREE.Mesh(geo, surfaceMaterial(color, THREE.FrontSide, opacity));
+  back.userData.pass = 0; front.userData.pass = 1;
+  return [back, front];
+}
+// Use the given normals where they're usable, face-averaged ones elsewhere.
+function setNormals(geo, normals) {
+  geo.computeVertexNormals();
+  if (!normals) return;
+  const N = geo.attributes.normal.array;
+  for (let i = 0; i < N.length; i += 3) if (normals[i] || normals[i + 1] || normals[i + 2]) { N[i] = normals[i]; N[i + 1] = normals[i + 1]; N[i + 2] = normals[i + 2]; }
+  geo.attributes.normal.needsUpdate = true;
+}
+function makeSurface(pos, idx, linePos, color, normals) {
+  const grp = new THREE.Group();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(idx); setNormals(geo, normals);
+  grp.add(...twoPass(geo, color));
+  if (linePos && linePos.length) {
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
+    const lc = new THREE.Color(color).multiplyScalar(0.5);
+    const ln = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: lc, transparent: true, opacity: 0.32, clippingPlanes: GEN.planes }));
+    ln.userData.pass = 2; grp.add(ln);
+  }
+  return grp;
+}
+function namesFor(map, role) { return Object.keys(map).filter(n => map[n] === role); }
+
+function buildExplicit(info, defs, color) {
+  const box = GEN.box, L = box.L, N = GEN.grid, M = N + 1, rr = roleRanges(box);
+  const [ra, rb] = info.params, [a0, a1] = rr[ra], [b0, b1] = rr[rb];
+  const nA = namesFor(info.map, ra), nB = namesFor(info.map, rb);
+  const s = Object.assign({}, defs), v = {}, out = [0, 0, 0];
+  const pos = new Float32Array(M * M * 3), dep = new Float64Array(M * M), ok = new Uint8Array(M * M);
+  for (let i = 0; i < M; i++) {
+    const a = a0 + (a1 - a0) * i / N; for (const n of nA) s[n] = a;
+    for (let j = 0; j < M; j++) {
+      const b = b0 + (b1 - b0) * j / N; for (const n of nB) s[n] = b;
+      const d = info.fn(s), k = i * M + j; dep[k] = d;
+      if (Number.isFinite(d) && Math.abs(d) < 1e5) {
+        v[ra] = a; v[rb] = b; v[info.dep] = d; toCart(info.sys, v, out);
+        pos[k * 3] = out[0]; pos[k * 3 + 1] = out[1]; pos[k * 3 + 2] = out[2]; ok[k] = 1;
+      }
+    }
+  }
+  const jumpy = info.dep !== 'A' && info.dep !== 'T', thr = 3 * Math.max(L, state.L);
+  const smooth = (p, q) => !jumpy || Math.abs(dep[p] - dep[q]) < thr;
+  const idx = [];
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const k00 = i * M + j, k10 = k00 + M, k01 = k00 + 1, k11 = k10 + 1;
+    if (!(ok[k00] && ok[k10] && ok[k01] && ok[k11])) continue;
+    if (!(smooth(k00, k11) && smooth(k10, k01) && smooth(k00, k10) && smooth(k00, k01))) continue;
+    idx.push(k00, k10, k11, k00, k11, k01);
+  }
+  const lines = [], step = Math.max(1, Math.round(N / 16));
+  const seg = (p, q) => { if (ok[p] && ok[q] && smooth(p, q)) lines.push(pos[p * 3], pos[p * 3 + 1], pos[p * 3 + 2], pos[q * 3], pos[q * 3 + 1], pos[q * 3 + 2]); };
+  for (let i = 0; i <= N; i += step) for (let j = 0; j < N; j++) seg(i * M + j, i * M + j + 1);
+  for (let j = 0; j <= N; j += step) for (let i = 0; i < N; i++) seg(i * M + j, (i + 1) * M + j);
+  return makeSurface(pos, idx, lines, color);
+}
+
+const CORNER = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]];
+const TETS = [[0, 6, 1, 2], [0, 6, 2, 3], [0, 6, 3, 7], [0, 6, 7, 4], [0, 6, 4, 5], [0, 6, 5, 1]];
+// Fills a scope with every coordinate name for the Cartesian point (x, y, z).
+function scopeSetter(info, wrapAz) {
+  const { AZ, POL } = names(state.conv), mathConv = state.conv === 'math', sys = info.sys;
+  return (s, x, y, z) => {
+    const cr = Math.hypot(x, y), sr = Math.hypot(x, y, z);
+    s.x = x; s.y = y; s.z = z;
+    if (sys === 'sph') { s.r = s.rho = sr; }
+    else if (sys === 'cyl') { s.r = s.rho = cr; }
+    else if (mathConv) { s.r = cr; s.rho = sr; } else { s.r = sr; s.rho = cr; }
+    let az = Math.atan2(y, x);
+    if (wrapAz && az < 0) az += 2 * Math.PI;
+    s[AZ] = az; s[POL] = sr > 0 ? Math.acos(z / sr) : 0;
+  };
+}
+function sampleGrid(M, lo, h, val) {
+  const F = new Float64Array(M * M * M);
+  for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++)
+    F[i + M * (j + M * k)] = val(lo[0] + i * h, lo[1] + j * h, lo[2] + k * h);
+  return F;
+}
+function buildImplicit(info, defs, color) {
+  const box = GEN.box, L = box.L, n = GEN.iso, M = n + 1, pad = GEN.fly ? 1 : 1.02, lo = box.c.map(c => c - L * pad), h = 2 * L * pad / n;
+  const s = Object.assign({}, defs), set = scopeSetter(info, false);
+  const F = sampleGrid(M, lo, h, (x, y, z) => { set(s, x, y, z); return info.fn(s); });
+  const { positions, indices, normals } = march(F, M, lo, h, info.usesAz);
+  return makeSurface(new Float32Array(positions), indices, null, color, normals);
+}
+// Marching tetrahedra over a sampled grid; triangles face toward positive F.
+function march(F, M, lo, h, azFilter) {
+  const n = M - 1, TOT = M * M * M;
+  const off = CORNER.map(([a, b, c]) => a + M * (b + M * c));
+  const positions = [], indices = [], normals = [], emap = new Map();
+  const grad = g => {
+    const i = g % M, j = ((g / M) | 0) % M, k = (g / (M * M)) | 0;
+    const d = (step, idx) => idx === 0 ? (F[g + step] - F[g]) / h : idx === n ? (F[g] - F[g - step]) / h : (F[g + step] - F[g - step]) / (2 * h);
+    return [d(1, i), d(M, j), d(M * M, k)];
+  };
+  const gp = g => { const i = g % M, j = ((g / M) | 0) % M, k = (g / (M * M)) | 0; return [lo[0] + i * h, lo[1] + j * h, lo[2] + k * h]; };
+  const vert = (ga, gb) => {
+    const key = ga < gb ? ga * TOT + gb : gb * TOT + ga;
+    let id = emap.get(key); if (id !== undefined) return id;
+    const fa = F[ga], fb = F[gb], t = fa / (fa - fb), pa = gp(ga), pb = gp(gb);
+    positions.push(pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t, pa[2] + (pb[2] - pa[2]) * t);
+    const na = grad(ga), nb = grad(gb), nv = [0, 1, 2].map(q => na[q] + (nb[q] - na[q]) * t), len = Math.hypot(...nv);
+    if (Number.isFinite(len) && len > 1e-12) normals.push(nv[0] / len, nv[1] / len, nv[2] / len); else normals.push(0, 0, 0);
+    id = positions.length / 3 - 1; emap.set(key, id); return id;
+  };
+  const tri = (a, b, c, d) => {
+    const P = positions;
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    if (nx * d[0] + ny * d[1] + nz * d[2] < 0) indices.push(a, c, b); else indices.push(a, b, c);
+  };
+  const g = [0, 0, 0, 0], f = [0, 0, 0, 0];
+  for (let k = 0; k < n; k++) for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const base = i + M * (j + M * k);
+    let neg = 0, bad = false;
+    for (let c = 0; c < 8; c++) { const val = F[base + off[c]]; if (!Number.isFinite(val)) { bad = true; break; } if (val < 0) neg++; }
+    if (bad || neg === 0 || neg === 8) continue;
+    for (const tet of TETS) {
+      let lo2 = Infinity, hi2 = -Infinity;
+      for (let q = 0; q < 4; q++) { g[q] = base + off[tet[q]]; f[q] = F[g[q]]; lo2 = Math.min(lo2, f[q]); hi2 = Math.max(hi2, f[q]); }
+      if (azFilter && hi2 - lo2 > Math.PI) continue; // angle branch cut, not a real surface
+      const ins = [], outs = [];
+      for (let q = 0; q < 4; q++) (f[q] < 0 ? ins : outs).push(q);
+      if (!ins.length || !outs.length) continue;
+      const d = [0, 0, 0];
+      for (const q of outs) for (let a = 0; a < 3; a++) d[a] += CORNER[tet[q]][a] / outs.length;
+      for (const q of ins) for (let a = 0; a < 3; a++) d[a] -= CORNER[tet[q]][a] / ins.length;
+      if (ins.length === 2) {
+        const [a, b] = ins, [c, e] = outs;
+        const v1 = vert(g[a], g[c]), v2 = vert(g[a], g[e]), v3 = vert(g[b], g[e]), v4 = vert(g[b], g[c]);
+        tri(v1, v2, v3, d); tri(v1, v3, v4, d);
+      } else {
+        const lone = ins.length === 1 ? ins[0] : outs[0];
+        const others = [0, 1, 2, 3].filter(q => q !== lone);
+        tri(vert(g[lone], g[others[0]]), vert(g[lone], g[others[1]]), vert(g[lone], g[others[2]]), d);
+      }
+    }
+  }
+  return { positions, indices, normals };
+}
+
+// 2D marching squares on an m×m grid over [a0,a1]²; pushes 3D segment endpoints to out.
+function contour2D(m, a0, a1, f, to3, out, maxJump = Infinity) {
+  const N = m + 1, st = (a1 - a0) / m, V = new Float64Array(N * N);
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) V[i * N + j] = f(a0 + i * st, a0 + j * st);
+  const cu = [0, 1, 1, 0], cv = [0, 0, 1, 1], pts = [];
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
+    const c = [V[i * N + j], V[(i + 1) * N + j], V[(i + 1) * N + j + 1], V[i * N + j + 1]];
+    if (c.some(Number.isNaN)) continue;
+    pts.length = 0;
+    for (let e = 0; e < 4; e++) {
+      const a = e, b = (e + 1) % 4;
+      if ((c[a] < 0) === (c[b] < 0) || Math.abs(c[a] - c[b]) > maxJump) continue;
+      const t = c[a] / (c[a] - c[b]);
+      pts.push(to3(a0 + (i + cu[a] + (cu[b] - cu[a]) * t) * st, a0 + (j + cv[a] + (cv[b] - cv[a]) * t) * st));
+    }
+    for (let p = 0; p + 1 < pts.length; p += 2) out.push(...pts[p], ...pts[p + 1]);
+  }
+}
+const lineMats = new Set();
+function fatLines(arr, color, width) {
+  const geo = new THREE.LineSegmentsGeometry(); geo.setPositions(arr);
+  const mat = new THREE.LineMaterial({ color, linewidth: width });
+  mat.resolution.set(view.clientWidth || 1, view.clientHeight || 1);
+  mat.fog = true;
+  lineMats.add(mat);
+  return new THREE.LineSegments2(geo, mat);
+}
+// Keep the part of a triangle where h ≤ 0; the cut becomes a border segment.
+function clipTri(P, Nn, H, pos, nor, rim) {
+  const inside = [H[0] <= 0, H[1] <= 0, H[2] <= 0], cnt = inside[0] + inside[1] + inside[2];
+  if (!cnt) return;
+  const poly = [], cut = [];
+  for (let i = 0; i < 3; i++) {
+    const j = (i + 1) % 3;
+    if (inside[i]) poly.push([P[i], Nn[i]]);
+    if (inside[i] !== inside[j]) {
+      const t = H[i] / (H[i] - H[j]);
+      const p = [0, 1, 2].map(a => P[i][a] + (P[j][a] - P[i][a]) * t), n = [0, 1, 2].map(a => Nn[i][a] + (Nn[j][a] - Nn[i][a]) * t);
+      poly.push([p, n]); cut.push(p);
+    }
+  }
+  for (let i = 1; i + 1 < poly.length; i++) for (const q of [poly[0], poly[i], poly[i + 1]]) { pos.push(...q[0]); nor.push(...q[1]); }
+  if (rim && cut.length === 2) rim.push(...cut[0], ...cut[1]);
+}
+function buildRegion(info, defs, color) {
+  const box = GEN.box, C = box.c, L = box.L, n = GEN.iso, Lb = GEN.fly ? L : L * 0.998, ext = GEN.fly ? L : L * 1.08, M = n + 1, lo = C.map(c => c - ext), h = 2 * ext / n, m = n * 2;
+  const s = Object.assign({}, defs), set = scopeSetter(info, true), gs = info.gs, K = gs.length;
+  const vals = new Float64Array(K);
+  const evalAll = (x, y, z) => { set(s, x, y, z); for (let k = 0; k < K; k++) { const v = gs[k](s); vals[k] = Number.isFinite(v) ? v : 1e3; } return vals; };
+  const G = (x, y, z) => { evalAll(x, y, z); let mx = -Infinity; for (let k = 0; k < K; k++) if (vals[k] > mx) mx = vals[k]; return mx; };
+  const boxSdf = (x, y, z) => Math.max(Math.abs(x - C[0]), Math.abs(y - C[1]), Math.abs(z - C[2])) - Lb;
+  const pos = [], nor = [], rim = [];
+  // Each condition's boundary surface, trimmed to where every other condition (and the box) holds.
+  for (let k = 0; k < K; k++) {
+    const F = sampleGrid(M, lo, h, (x, y, z) => { set(s, x, y, z); return gs[k](s); });
+    const { positions, indices, normals } = march(F, M, lo, h, false);
+    if (!indices.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices); setNormals(geo, normals);
+    const NA = geo.attributes.normal.array, nv = positions.length / 3, hv = new Float64Array(nv);
+    for (let i = 0; i < nv; i++) {
+      const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+      evalAll(x, y, z);
+      let mx = boxSdf(x, y, z);
+      for (let j = 0; j < K; j++) if (j !== k && vals[j] > mx) mx = vals[j];
+      hv[i] = mx;
+    }
+    geo.dispose();
+    const vp = i => [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]], vn = i => [NA[i * 3], NA[i * 3 + 1], NA[i * 3 + 2]];
+    for (let t = 0; t < indices.length; t += 3) {
+      const a = indices[t], b = indices[t + 1], c = indices[t + 2];
+      if (hv[a] > 0 && hv[b] > 0 && hv[c] > 0) continue;
+      clipTri([vp(a), vp(b), vp(c)], [vn(a), vn(b), vn(c)], [hv[a], hv[b], hv[c]], pos, nor, rim);
+    }
+  }
+  if (!GEN.fly) { // in fly mode the world has no edges, so no caps
+  // Flat caps where the region is cut off by the graph box.
+  for (let ax = 0; ax < 3; ax++) for (const sg of [-1, 1]) {
+    const to3 = (u, v) => { const p = [0, 0, 0]; p[ax] = sg * Lb; p[(ax + 1) % 3] = u; p[(ax + 2) % 3] = v; return [p[0] + C[0], p[1] + C[1], p[2] + C[2]]; };
+    const N1 = m + 1, st = 2 * Lb / m, P = [], Hh = new Float64Array(N1 * N1);
+    for (let i = 0; i < N1; i++) for (let j = 0; j < N1; j++) { const p = to3(-Lb + i * st, -Lb + j * st); P.push(p); Hh[i * N1 + j] = G(...p); }
+    const nrm = [0, 0, 0]; nrm[ax] = sg;
+    for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
+      const q = [i * N1 + j, (i + 1) * N1 + j, (i + 1) * N1 + j + 1, i * N1 + j + 1];
+      for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+        if (Hh[a] > 0 && Hh[b] > 0 && Hh[c] > 0) continue;
+        clipTri([P[a], P[b], P[c]], [nrm, nrm, nrm], [Hh[a], Hh[b], Hh[c]], pos, nor, null);
+      }
+    }
+  }
+  // Box edges that run through the region are borders too.
+  for (let ax = 0; ax < 3; ax++) for (const sa of [-1, 1]) for (const sb of [-1, 1]) {
+    const at = t => { const p = [0, 0, 0]; p[ax] = t; p[(ax + 1) % 3] = sa * Lb; p[(ax + 2) % 3] = sb * Lb; return [p[0] + C[0], p[1] + C[1], p[2] + C[2]]; };
+    let t0 = -Lb, g0 = G(...at(t0));
+    for (let k = 1; k <= m; k++) {
+      const t1 = -Lb + 2 * Lb * k / m, g1 = G(...at(t1));
+      const in0 = g0 <= 0, in1 = g1 <= 0;
+      if (in0 && in1) rim.push(...at(t0), ...at(t1));
+      else if (in0 !== in1) rim.push(...at(in0 ? t0 : t1), ...at(t0 + (t1 - t0) * g0 / (g0 - g1)));
+      t0 = t1; g0 = g1;
+    }
+  }
+  }
+  const grp = new THREE.Group();
+  if (!pos.length) return grp;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  grp.add(...twoPass(geo, color, 0.3));
+  if (rim.length) grp.add(fatLines(rim, color, 2.4));
+  // Faint horizontal slices so a curved boundary reads as a surface.
+  const slices = [], step = niceStep(state.L / 5);
+  for (let zl = Math.ceil((C[2] - Lb) / step) * step; zl < C[2] + Lb; zl += step)
+    contour2D(m, -Lb, Lb, (u, v) => G(C[0] + u, C[1] + v, zl), (u, v) => [C[0] + u, C[1] + v, zl], slices);
+  if (slices.length) {
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(slices, 3));
+    const ln = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 }));
+    ln.userData.pass = 2; grp.add(ln);
+  }
+  return grp;
+}
+
+function paramRange(row, p, defs) {
+  const dflt = { t: [0, 2 * Math.PI], u: [0, 2 * Math.PI], v: [0, Math.PI] }[p];
+  const r = (row.info && row.info.setRanges && row.info.setRanges[p]) || row.ranges[p] || [];
+  return [0, 1].map(i => { const v = evalConst(r[i], defs); return Number.isFinite(v) ? v : dflt[i]; });
+}
+function evalConst(str, defs) {
+  if (str == null || !String(str).trim()) return NaN;
+  try { return cl(parse(rewrite(String(str), Object.keys(defs)).s))(defs); } catch (e) { return NaN; }
+}
+function buildCurve(info, defs, color, row) {
+  const L = state.L, p = info.params[0], [t0, t1] = paramRange(row, p, defs), N = Q().curve;
+  const s = Object.assign({}, defs), segs = []; let cur = [], prev = null;
+  for (let i = 0; i <= N; i++) {
+    s[p] = t0 + (t1 - t0) * i / N;
+    const P = info.vec(s), x = P[0], y = P[1], z = P[2];
+    if (![x, y, z].every(q => Number.isFinite(q) && Math.abs(q) < 1e4)) { if (cur.length) segs.push(cur); cur = []; prev = null; continue; }
+    const pt = new THREE.Vector3(x, y, z);
+    if (prev && pt.distanceTo(prev) > L * 0.6) { segs.push(cur); cur = []; }
+    cur.push(pt); prev = pt;
+  }
+  if (cur.length) segs.push(cur);
+  const grp = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({ color, shininess: 40, side: THREE.DoubleSide, clippingPlanes: GEN.planes });
+  for (const sg of segs) {
+    if (sg.length < 2) continue;
+    const curve = new THREE.CatmullRomCurve3(sg, false, 'centripetal');
+    grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(sg.length * 2, 3000), L * 0.011, 8, false), mat));
+  }
+  return grp;
+}
+function buildPSurface(info, defs, color, row) {
+  const L = state.L, N = Q().ps, M = N + 1, [pu, pv] = info.params;
+  const [u0, u1] = paramRange(row, pu, defs), [v0, v1] = paramRange(row, pv, defs);
+  const s = Object.assign({}, defs), pos = new Float32Array(M * M * 3), ok = new Uint8Array(M * M);
+  for (let i = 0; i < M; i++) { s[pu] = u0 + (u1 - u0) * i / N;
+    for (let j = 0; j < M; j++) { s[pv] = v0 + (v1 - v0) * j / N;
+      const P = info.vec(s), x = P[0], y = P[1], z = P[2], k = i * M + j;
+      if ([x, y, z].every(q => Number.isFinite(q) && Math.abs(q) < 1e4)) { pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z; ok[k] = 1; }
+    } }
+  const far = (p, q) => Math.hypot(pos[p * 3] - pos[q * 3], pos[p * 3 + 1] - pos[q * 3 + 1], pos[p * 3 + 2] - pos[q * 3 + 2]) > L * 0.6;
+  const idx = [];
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const a = i * M + j, b = a + M, c = b + 1, d = a + 1;
+    if (ok[a] && ok[b] && ok[c] && ok[d] && !far(a, c) && !far(b, d)) idx.push(a, b, c, a, c, d);
+  }
+  const lines = [], step = Math.max(1, Math.round(N / 14));
+  const seg = (p, q) => { if (ok[p] && ok[q] && !far(p, q)) lines.push(pos[p * 3], pos[p * 3 + 1], pos[p * 3 + 2], pos[q * 3], pos[q * 3 + 1], pos[q * 3 + 2]); };
+  for (let i = 0; i <= N; i += step) for (let j = 0; j < N; j++) seg(i * M + j, i * M + j + 1);
+  for (let j = 0; j <= N; j += step) for (let i = 0; i < N; i++) seg(i * M + j, (i + 1) * M + j);
+  return makeSurface(pos, idx, lines, color);
+}
+function buildPoint(info, defs, color) {
+  const p = info.vec(defs);
+  if (!isArr(p)) return null;
+  if (!p.every(Number.isFinite)) return null;
+  const m = new THREE.Mesh(new THREE.SphereGeometry(state.L * 0.03, 24, 16), new THREE.MeshPhongMaterial({ color, shininess: 50, side: THREE.DoubleSide, clippingPlanes: GEN.planes }));
+  m.position.set(...p);
+  return m;
+}
+
+// A sequence: one dot per term, the first term a little bigger so you can see where it starts.
+// "to ∞" walks far out, drawing a dot only where none is yet; dots outside the orbit box would be clipped anyway.
+const SEQ_EVALS = 100000, SEQ_DOTS = 20000;
+const isInf = q => /^\s*\+?\s*(∞|inf|infinity|infty|oo)\s*$/i.test(String(q));
+function buildSeq(info, defs, color, row) {
+  const inf = isInf(row.seqRange[1]);
+  const [a, b] = [evalConst(row.seqRange[0], defs), inf ? Infinity : evalConst(row.seqRange[1], defs)];
+  if (!Number.isFinite(a) || Number.isNaN(b)) { info.warn = `Check the range for ${greek(info.v)} — it needs two numbers.`; return null; }
+  const n0 = Math.ceil(a - 1e-9), n1 = Math.floor(b + 1e-9);
+  if (n1 < n0) { info.warn = `The range for ${greek(info.v)} has no whole numbers in it.`; return null; }
+  const last = Math.min(n1, n0 + SEQ_EVALS - 1);
+  if (last < n1 && !inf) info.warn = `Showing the first ${SEQ_EVALS.toLocaleString()} terms.`;
+  const rad = state.L * 0.022 / 7, cell = 4 / rad, seen = new Set(), s = Object.assign({}, defs), pts = [];
+  const lim = GEN.fly ? Infinity : GEN.box.L + rad;
+  const line = row.seqLine !== false ? [] : null; let prev = null; // joins term n to term n + 1
+  for (let n = n0; n <= last && pts.length < SEQ_DOTS; n++) {
+    s[info.v] = n;
+    const P = info.vec(s);
+    const ok = isArr(P) && P.every(q => Number.isFinite(q) && Math.abs(q) < 1e6);
+    if (line) {
+      if (!ok) prev = null; // an undefined term breaks the line
+      else if (!prev || Math.hypot(P[0] - prev[0], P[1] - prev[1], P[2] - prev[2]) > rad * 0.25) { if (prev) line.push(...prev, ...P); prev = P; }
+    }
+    if (!ok || !P.every(q => Math.abs(q) < lim)) continue;
+    if (inf) {
+      const key = Math.round(P[0] * cell) + ',' + Math.round(P[1] * cell) + ',' + Math.round(P[2] * cell);
+      if (n !== n0 && seen.has(key)) continue; // lands on a dot that's already drawn
+      seen.add(key);
+    }
+    pts.push([P, n === n0]);
+  }
+  if (pts.length >= SEQ_DOTS && !info.warn) info.warn = `Showing the first ${SEQ_DOTS.toLocaleString()} separate dots.`;
+  if (!pts.length && !(line && line.length)) return null;
+  const grp = new THREE.Group();
+  if (line && line.length) {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(line, 3));
+    grp.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6, clippingPlanes: GEN.planes })));
+  }
+  if (!pts.length) return grp;
+  const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(rad, 10, 8), new THREE.MeshBasicMaterial({ color, clippingPlanes: GEN.planes }), pts.length); // flat colour: shading washes tiny dots out to white
+  const m = new THREE.Matrix4();
+  pts.forEach(([P, first], i) => { const k = first ? 1.6 : 1; mesh.setMatrixAt(i, m.makeScale(k, k, k).setPosition(...P)); });
+  mesh.frustumCulled = false; // the dots spread far from the mesh's own origin
+  grp.add(mesh);
+  return grp;
+}
+
+// ───────────────────────── rows UI ─────────────────────────
+const rowsEl = document.getElementById('rows');
+let lastRow = null, lastField = null;
+const MQ = MathQuill.getInterface(2);
+const MQ_OPTS = {
+  spaceBehavesLikeTab: false, leftRightIntoCmdGoes: 'up', restrictMismatchedBrackets: true,
+  supSubsRequireOperand: true, charsThatBreakOutOfSupSub: '+-=<>,)', autoSubscriptNumerals: false,
+  autoCommands: 'pi theta phi rho tau sqrt alpha beta gamma delta epsilon lambda mu sigma omega',
+  autoOperatorNames: 'sin cos tan sec csc cot sinh cosh tanh arcsin arccos arctan ln log exp abs sgn sign floor ceil round min max mod seq',
+};
+rowsEl.addEventListener('focusin', e => { const f = e.target.closest && e.target.closest('.mq-editable-field'); if (f) lastField = f; });
+const MAT_MAX = 6;
+const identity = n => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? '1' : '0')));
+// Typing "A = Matrix" turns the row into a matrix editor.
+function makeMatrixRow(row, name) {
+  row.matrix = { nameTex: name.replace(/_([A-Za-z0-9]+)/, '_{$1}'), cells: identity(3) };
+  const expr = row.el.querySelector('.expr');
+  const wrap = document.createElement('div');
+  wrap.className = 'matrow';
+  wrap.innerHTML = `<span class="mname"></span><span class="meq">=</span>
+    <div class="mbox"><div class="mgrid"></div>
+      <button type="button" class="mhandle" aria-label="Resize matrix: drag, or use the arrow keys" title="Drag to resize"></button>
+      <span class="msize" hidden></span></div>`;
+  expr.after(wrap); expr.hidden = true;
+  const nm = MQ.MathField(wrap.querySelector('.mname'), Object.assign({}, MQ_OPTS, {
+    handlers: { edit: f => { if (row.silent) return; row.matrix.nameTex = f.latex(); schedule(140); } },
+  }));
+  row.silent = true; nm.latex(row.matrix.nameTex); row.silent = false;
+  setupMatrixHandle(row, wrap);
+  renderCells(row);
+  const first = wrap.querySelector('.mcell'); if (first) MQ(first).focus();
+}
+function renderCells(row) {
+  const m = row.matrix, grid = row.el.querySelector('.mgrid');
+  grid.innerHTML = '';
+  grid.style.gridTemplateColumns = `repeat(${m.cells[0].length}, minmax(26px, auto))`;
+  m.cells.forEach((cellsRow, i) => cellsRow.forEach((tex, j) => {
+    const span = document.createElement('span'); span.className = 'mcell'; grid.appendChild(span);
+    const f = MQ.MathField(span, Object.assign({}, MQ_OPTS, {
+      handlers: { edit: mf => { if (row.silent) return; m.cells[i][j] = mf.latex(); schedule(140); } },
+    }));
+    row.silent = true; f.latex(tex); row.silent = false;
+    const ta = span.querySelector('textarea'); if (ta) ta.setAttribute('aria-label', `Row ${i + 1}, column ${j + 1}`);
+  }));
+}
+function resizeMatrix(row, R, C) {
+  const m = row.matrix;
+  R = Math.max(1, Math.min(MAT_MAX, R)); C = Math.max(1, Math.min(MAT_MAX, C));
+  if (R === m.cells.length && C === m.cells[0].length) return;
+  m.cells = Array.from({ length: R }, (_, i) => Array.from({ length: C }, (_, j) => (m.cells[i] && m.cells[i][j] !== undefined ? m.cells[i][j] : (i === j ? '1' : '0'))));
+  renderCells(row); schedule(0);
+}
+function setupMatrixHandle(row, wrap) {
+  const h = wrap.querySelector('.mhandle'), badge = wrap.querySelector('.msize');
+  let st = null;
+  const show = () => { badge.hidden = false; badge.textContent = `${row.matrix.cells.length} × ${row.matrix.cells[0].length}`; };
+  h.addEventListener('pointerdown', e => {
+    e.preventDefault(); h.setPointerCapture(e.pointerId);
+    const m = row.matrix, rect = wrap.querySelector('.mgrid').getBoundingClientRect();
+    st = { x: e.clientX, y: e.clientY, r: m.cells.length, c: m.cells[0].length, px: Math.max(34, rect.width / m.cells[0].length), py: Math.max(28, rect.height / m.cells.length) };
+    show();
+  });
+  h.addEventListener('pointermove', e => {
+    if (!st) return;
+    resizeMatrix(row, st.r + Math.round((e.clientY - st.y) / st.py), st.c + Math.round((e.clientX - st.x) / st.px));
+    show();
+  });
+  const end = () => { st = null; badge.hidden = true; };
+  h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+  h.addEventListener('keydown', e => {
+    const m = row.matrix; let R = m.cells.length, C = m.cells[0].length;
+    if (e.key === 'ArrowRight') C++; else if (e.key === 'ArrowLeft') C--; else if (e.key === 'ArrowDown') R++; else if (e.key === 'ArrowUp') R--; else return;
+    e.preventDefault(); e.stopPropagation(); resizeMatrix(row, R, C); show();
+    clearTimeout(h._t); h._t = setTimeout(() => { badge.hidden = true; }, 900);
+  });
+}
+function analyzeMatrix(row, userNames) {
+  const m = row.matrix, name = latexToText(m.nameTex).replace(/\s+/g, '');
+  if (!/^[A-Za-z]+(_[A-Za-z0-9]+)?$/.test(name)) return err('Give the matrix a name, like A or R_x.');
+  if (COORDS.includes(name) || PARAMS.includes(name) || name in CONSTS || FN[name]) return err(`${greek(name)} already means something else — pick another name.`);
+  const free = new Set(), bad = [];
+  const fns = m.cells.map((cellsRow, i) => cellsRow.map((tex, j) => {
+    try {
+      const node = parse(rewrite(latexToText(tex) || '0', userNames).s);
+      if (typeOf(node).t !== 'num') throw new Error();
+      for (const n of symbolsOf(node)) { if (COORDS.includes(n)) throw new Error(); if (!PARAMS.includes(n) && !(n in CONSTS)) free.add(n); }
+      return cl(node);
+    } catch (e) { bad.push([i, j]); return () => NaN; }
+  }));
+  if (bad.length) return Object.assign(err(`Check the entry in row ${bad[0][0] + 1}, column ${bad[0][1] + 1}. Entries are numbers or formulas in sliders and t.`), { bad });
+  return { kind: 'matrix', name, r: fns.length, c: fns[0].length, fn: s => fns.map(rw => rw.map(f => f(s))), free: [...free] };
+}
+const fdefParams = m => m[2].split(',').map(p => { p = p.trim(); return SYN[p] && COORDS.includes(SYN[p]) ? SYN[p] : p; });
+// a(x) = z uses a coordinate the "inputs" don't name, so it's an equation, not a definition.
+function isEquationLike(m, userNames) {
+  const params = fdefParams(m);
+  try { return [...symbolsOf(parse(rewrite(m[3], new Set([...userNames, ...params])).s))].some(n => COORDS.includes(n) && !params.includes(n)); }
+  catch (e) { return false; }
+}
+// f(a, b, c) = (3a, 2b, 4c)
+function analyzeFuncDef(row, m, userNames) {
+  const name = m[1], U = USERFN.get(name), body = m[3].trim();
+  const params = fdefParams(m);
+  const fail = msg => { if (U.row === row) U.err = msg; return Object.assign(err(msg), { name }); };
+  if (U.row !== row) return Object.assign(err(`${greek(name)} is defined twice.`), { name });
+  if (!body) return fail(`Write what ${greek(name)} gives after the =, like ${name}(${params.join(', ')}) = (…, …, …).`);
+  if (new Set(params).size !== params.length) return fail('Give each input its own letter.');
+  const bad = params.find(p => p in CONSTS || FN[p] || USERFN.has(p) || MATS[p]);
+  if (bad) return fail(`${greek(bad)} already means something else — pick another letter for that input.`);
+  let rw, node;
+  try { rw = rewrite(body, new Set([...userNames, ...params])); node = parse(rw.s); } catch (e) { return fail(e.message); }
+  const syms = symbolsOf(node);
+  Object.assign(U, { params, node, src: body, rwNotes: rw.notes, free: [...syms].filter(n => !params.includes(n) && !(n in CONSTS)) });
+  return { kind: 'funcdef', name };
+}
+function funcRowInfo(r) {
+  if (r.fdef.kind === 'error') return r.fdef;
+  const U = USERFN.get(r.fdef.name);
+  if (U.err) return err(U.err);
+  const nIn = U.params.length, nOut = U.out.t === 'vec' ? U.out.n : 1, ps = U.params.map(p => GREEK[p] || p).join(', ');
+  const kind = nIn === 1 && nOut === 1 ? 'numbers in, numbers out' : nOut === 1 ? 'Cartesian point in, number out' : nIn === 1 ? 'number in, Cartesian point out' : 'Cartesian points in and out';
+  return { kind: 'func', name: r.fdef.name, nIn, nOut, free: [...U.free], rwNotes: U.rwNotes || [],
+    reads: `${nIn > 1 ? `(${ps})` : ps} ↦ ${fmtNode(U.node)}`, notes: [`${greek(r.fdef.name)} : ℝ${SUP(nIn)} → ℝ${SUP(nOut)}`, kind] };
+}
+// seq(k)(1/k, 1/(3k), 1/(2k)): the first bracket names the index, the second gives each term.
+const SEQ_RE = /^\s*seq\s*\(\s*([^()]*?)\s*\)\s*(\(.*\))\s*$/;
+const isSeqText = text => /^\s*seq\s*\(/.test(text);
+function analyzeSeq(row, text, userNames) {
+  const m = SEQ_RE.exec(text);
+  if (!m) return err('Write a sequence like seq(k)(1/k, 1/(3k), 1/(2k)).');
+  const raw = m[1].replace(/\s+/g, ''), v = SYN[raw] && COORDS.includes(SYN[raw]) ? SYN[raw] : raw;
+  if (!/^[A-Za-z]+(_[A-Za-z0-9]+)?$/.test(v)) return err('Put one letter in the first bracket, like seq(k)(…) or seq(n)(…).');
+  if (v in CONSTS || FN[v] || MATS[v]) return err(`${greek(v)} already means something else — pick another letter.`);
+  try {
+    const rw = rewrite(m[2], new Set([...userNames, v]));
+    const node = parse(rw.s), ty = typeOf(node);
+    if (ty.t === 'mat') return err('Each term has to be a number or a point, not a matrix.');
+    if (ty.t === 'vec' && ty.n !== 2 && ty.n !== 3) return err(`Each term has ${ty.n} entries — a point in space needs 3.`);
+    const syms = symbolsOf(node);
+    if (!syms.has(v)) return err(`The terms don't use ${greek(v)} — every dot would land in the same place.`);
+    const coords = [...syms].filter(n => n !== v && COORDS.includes(n));
+    if (coords.length) return err(`Inside seq only ${greek(v)} changes — found ${greek(coords.join(', '))}. Use a slider instead.`);
+    if (!row.seqRange) row.seqRange = ['1', '50'];
+    const free = new Set([...syms].filter(n => n !== v && !(n in CONSTS)));
+    for (const q of row.seqRange) { // sliders in the range count too
+      if (isInf(q)) continue;
+      try { for (const n of symbolsOf(parse(rewrite(String(q), userNames).s))) if (!(n in CONSTS)) free.add(n); } catch (e) { /* drawn as a range warning */ }
+    }
+    const f = cl(node), dim = ty.t === 'vec' ? ty.n : 1;
+    const vec = dim === 3 ? f : dim === 2 ? q => { const p = f(q); return isArr(p) ? [p[0], p[1], 0] : p; } : q => [f(q), 0, 0];
+    const notes = dim === 1 ? ['on the x-axis'] : dim === 2 ? ['in the xy-plane'] : [];
+    return { kind: 'seq', v, vec, free: [...free], notes, rwNotes: rw.notes, reads: `${greek(v)} ↦ ${fmtNode(node)}` };
+  } catch (e) { return err(e.message); }
+}
+function setRowLatex(row, tex) {
+  row.silent = true; row.mf.latex(tex); row.silent = false;
+  row.latex = tex; row.text = latexToText(tex);
+}
+
+function addRow(tex, opts = {}) {
+  const row = {
+    id: state.nextId++, latex: tex, text: latexToText(tex), color: PALETTE[state.colorIdx++ % PALETTE.length], hidden: false, override: 'auto',
+    ranges: Object.assign({ t: ['0', '2π'], u: ['0', '2π'], v: ['0', 'π'] }, opts.ranges || {}),
+    slider: { min: -10, max: 10 }, playing: false, dir: 1, obj: null, key: null, info: null, extraSig: '',
+  };
+  const idx = opts.before ? state.rows.indexOf(opts.before) : opts.after ? state.rows.indexOf(opts.after) + 1 : state.rows.length;
+  state.rows.splice(idx, 0, row);
+  createRowEl(row, opts.before ? opts.before.el : opts.after ? opts.after.el.nextSibling : null);
+  schedule(0);
+  return row;
+}
+function removeRow(row) {
+  const i = state.rows.indexOf(row);
+  if (i < 0) return;
+  state.rows.splice(i, 1);
+  if (row.obj) { scene.remove(row.obj); disposeObj(row.obj); }
+  clearFly(row);
+  row.el.remove();
+  schedule(0);
+}
+function liveGreek(inp) {
+  const v = inp.value, c = inp.selectionStart;
+  let delta = 0;
+  const nv = v.replace(/(^|[^A-Za-z])(rho|roh|theta|phi|pi)(?=[^A-Za-z])/g, (m, pre, w, off) => {
+    const g = GREEK[w];
+    if (off + pre.length < c) delta += g.length - w.length;
+    return pre + g;
+  });
+  const nv2 = nv.replace(/<=|>=/g, (m, off) => { if (off < c + delta) delta -= 1; return m === '<=' ? '≤' : '≥'; });
+  if (nv2 !== v) { inp.value = nv2; inp.setSelectionRange(c + delta, c + delta); }
+}
+function createRowEl(row, before) {
+  const el = document.createElement('div');
+  el.className = 'row';
+  el.style.setProperty('--c', row.color);
+  el.innerHTML = `<button class="swatch" type="button" aria-label="Show or hide this graph"></button>
+    <div class="rbody">
+      <span class="expr" id="expr-${row.id}"></span>
+      <div class="meta" hidden><span class="chip"></span>
+        <select class="sys" id="sys-${row.id}" aria-label="Coordinate system">
+          <option value="auto">Auto-detect</option><option value="cart">Cartesian</option><option value="cyl">Cylindrical</option><option value="sph">Spherical</option>
+        </select></div>
+      <div class="reads"></div><div class="msg"></div><div class="extra"></div>
+    </div>
+    <button class="del" type="button" aria-label="Delete expression">×</button>`;
+  row.el = el;
+  rowsEl.insertBefore(el, before || null);
+  const span = el.querySelector('.expr');
+  row.mf = MQ.MathField(span, Object.assign({}, MQ_OPTS, {
+    handlers: {
+      edit: mf => { if (row.silent) return; row.latex = mf.latex(); row.text = latexToText(row.latex); schedule(140); },
+      enter: () => { const r = addRow('', { after: row }); r.mf.focus(); r.el.scrollIntoView({ block: 'nearest' }); },
+      deleteOutOf: () => {
+        if (row.mf.latex() || state.rows.length < 2) return;
+        const i = state.rows.indexOf(row); removeRow(row);
+        const p = state.rows[Math.max(0, i - 1)]; if (p) p.mf.focus();
+      },
+    },
+  }));
+  row.silent = true; row.mf.latex(row.latex); row.silent = false;
+  const ta = span.querySelector('textarea');
+  if (ta) {
+    ta.setAttribute('aria-label', 'Expression');
+    ta.addEventListener('focus', () => { lastRow = row; });
+    // Phone keyboards and some input methods insert text without key events, which
+    // MathQuill 0.10 ignores; feed whatever it left behind in its textarea back in.
+    ta.addEventListener('input', e => {
+      if (e.isComposing) return;
+      setTimeout(() => { if (ta.value) { const t = ta.value; ta.value = ''; row.mf.typedText(t); } }, 0);
+    });
+    ta.addEventListener('compositionend', () => setTimeout(() => { if (ta.value) { const t = ta.value; ta.value = ''; row.mf.typedText(t); } }, 0));
+  }
+  el.querySelector('.swatch').addEventListener('click', () => { row.hidden = !row.hidden; el.classList.toggle('off', row.hidden); if (row.obj) row.obj.visible = !row.hidden; if (row.fly) { for (const e of row.fly.leaves.values()) if (e.o) e.o.visible = !row.hidden; for (const o of row.fly.old) o.visible = !row.hidden; } });
+  el.querySelector('.sys').addEventListener('change', e => { row.override = e.target.value; schedule(0); });
+  el.querySelector('.del').addEventListener('click', () => removeRow(row));
+}
+const fmtNum = v => String(+v.toFixed(Math.abs(v) >= 100 ? 1 : 3));
+function setSliderValue(row, v) {
+  setRowLatex(row, `${texName(row.info.name)}=${fmtNum(v)}`);
+}
+// ── Calculator ──
+// Best fraction for a double: continued fractions, accepted only if it matches to rounding error.
+function toFraction(x) {
+  if (!Number.isFinite(x)) return null;
+  if (Number.isInteger(x)) return { n: x, d: 1 };
+  const sign = x < 0 ? -1 : 1, ax = Math.abs(x), tol = Math.max(2e-15 * ax, 1e-15);
+  let h0 = 0, h1 = 1, k0 = 1, k1 = 0, b = ax;
+  for (let i = 0; i < 64; i++) {
+    const a = Math.floor(b), h2 = a * h1 + h0, k2 = a * k1 + k0;
+    h0 = h1; h1 = h2; k0 = k1; k1 = k2;
+    if (k1 > 1e7) return null;                       // denominator too big to be a "real" fraction
+    if (Math.abs(ax - h1 / k1) <= tol) return { n: sign * h1, d: k1 };
+    const frac = b - a; if (frac === 0) break;
+    b = 1 / frac;
+  }
+  return null;
+}
+function numTex(v) {
+  if (Number.isNaN(v)) return '\\text{undefined}';
+  if (!Number.isFinite(v)) return v > 0 ? '\\infty' : '-\\infty';
+  if (Number.isInteger(v) && Math.abs(v) < 1e15) return String(v);
+  const str = String(Number(v.toPrecision(12)));
+  const m = /^(-?[\d.]+)e([+-]\d+)$/.exec(str);
+  return m ? `${m[1]}\\times 10^{${+m[2]}}` : str;
+}
+function renderCalc(row, info) {
+  if (!row.calcMQ) return;
+  const v = info.value, note = row.el.querySelector('.calc-note');
+  let tex = numTex(v), msg = '';
+  if (row.fraction && Number.isFinite(v)) {
+    const f = toFraction(v);
+    if (!f) msg = "Can't be written as a fraction — showing the decimal.";
+    else if (f.d === 1) tex = numTex(f.n);
+    else tex = `${f.n < 0 ? '-' : ''}\\frac{${Math.abs(f.n)}}{${f.d}}`;
+  }
+  if (tex !== row.calcTex) { row.calcMQ.latex(tex); row.calcTex = tex; }
+  note.textContent = msg;
+}
+function renderExtra(row, info) {
+  const ex = row.el.querySelector('.extra');
+  let sig = info.kind;
+  if (info.kind === 'seq') sig += info.v;
+  if (info.kind === 'curve' || info.kind === 'psurface') sig += info.params.filter(p => !(info.setRanges && info.setRanges[p])).join('');
+  if (info.mapped) sig += '|map:' + info.mapName;
+  if (info.fix) sig += '|fix:' + info.fix.coordSys + (info.fix.refName || '');
+  if (info.coordSys) sig += '|conv:' + info.coordSys;
+  if (info.missing && info.missing.length) sig = 'missing' + info.missing.join(',');
+  if (sig !== row.extraSig) {
+    row.extraSig = sig; ex.innerHTML = '';
+    if (info.missing && info.missing.length) {
+      for (const n of info.missing) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'mk'; b.textContent = `+ Add slider for ${greek(n)}`;
+        b.addEventListener('click', () => addRow(`${texName(n)}=1`, { after: row }));
+        ex.appendChild(b);
+      }
+    } else if (info.kind === 'calc') {
+      ex.innerHTML = `<div class="calc"><span class="calc-eq">=</span><span class="calc-val"></span>
+        <button type="button" class="frac" aria-pressed="false" title="Show as a fraction">a/b</button></div><div class="calc-note"></div>`;
+      row.calcMQ = MQ.StaticMath(ex.querySelector('.calc-val')); row.calcTex = null;
+      const fb = ex.querySelector('.frac');
+      fb.setAttribute('aria-pressed', !!row.fraction);
+      fb.addEventListener('click', () => { row.fraction = !row.fraction; fb.setAttribute('aria-pressed', row.fraction); renderCalc(row, row.info); });
+    } else if (info.kind === 'slider') {
+      ex.innerHTML = `<div class="slider"><button type="button" class="play" aria-label="Play">▶</button>
+        <input class="num mn" id="mn-${row.id}" type="number" step="any" aria-label="Minimum">
+        <input class="rg" id="rg-${row.id}" type="range" aria-label="Value">
+        <input class="num mx" id="mx-${row.id}" type="number" step="any" aria-label="Maximum"></div>`;
+      const rg = ex.querySelector('.rg'), mn = ex.querySelector('.mn'), mx = ex.querySelector('.mx'), pl = ex.querySelector('.play');
+      mn.value = row.slider.min; mx.value = row.slider.max;
+      const syncRange = () => { rg.min = row.slider.min; rg.max = row.slider.max; rg.step = (row.slider.max - row.slider.min) / 1000; };
+      syncRange();
+      rg.addEventListener('input', () => { setSliderValue(row, +rg.value); schedule(0); });
+      mn.addEventListener('change', () => { const v = +mn.value; if (Number.isFinite(v) && v < row.slider.max) row.slider.min = v; mn.value = row.slider.min; syncRange(); });
+      mx.addEventListener('change', () => { const v = +mx.value; if (Number.isFinite(v) && v > row.slider.min) row.slider.max = v; mx.value = row.slider.max; syncRange(); });
+      const showPlay = () => { pl.textContent = row.playing ? '❚❚' : '▶'; pl.setAttribute('aria-label', row.playing ? 'Pause' : 'Play'); };
+      showPlay();
+      pl.addEventListener('click', () => { row.playing = !row.playing; showPlay(); });
+    } else if (info.kind === 'seq') {
+      const d = document.createElement('div'); d.className = 'rng';
+      d.innerHTML = `<i></i> from <input class="num" id="s0-${row.id}" type="text" aria-label="First index"> to <input class="num" id="s1-${row.id}" type="text" aria-label="Last index">
+        <button type="button" class="frac inf" aria-pressed="false" title="Go on forever">∞</button>`;
+      d.querySelector('i').textContent = greek(info.v);
+      const [a, b] = d.querySelectorAll('input'), ib = d.querySelector('.inf');
+      const showInf = () => { const on = isInf(row.seqRange[1]); ib.setAttribute('aria-pressed', on); b.readOnly = on; b.value = on ? '∞' : row.seqRange[1]; };
+      a.value = row.seqRange[0]; showInf();
+      a.addEventListener('input', () => { liveGreek(a); row.seqRange[0] = a.value; schedule(200); });
+      b.addEventListener('input', () => { liveGreek(b); row.seqRange[1] = b.value; ib.setAttribute('aria-pressed', isInf(b.value)); schedule(200); });
+      ib.addEventListener('click', () => {
+        if (isInf(row.seqRange[1])) row.seqRange[1] = row.seqEnd || '50';
+        else { row.seqEnd = row.seqRange[1]; row.seqRange[1] = '∞'; }
+        showInf(); schedule(0);
+      });
+      ex.appendChild(d);
+      const lb = document.createElement('label'); lb.className = 'rng both';
+      lb.innerHTML = `<input type="checkbox" id="line-${row.id}"> Connect the dots`;
+      const cb = lb.querySelector('input'); cb.checked = row.seqLine !== false;
+      cb.addEventListener('change', () => { row.seqLine = cb.checked; schedule(0); });
+      ex.appendChild(lb);
+    } else if (info.kind === 'curve' || info.kind === 'psurface') {
+      for (const p of info.params) {
+        if (info.setRanges && info.setRanges[p]) continue; // the set already says the range
+        const d = document.createElement('div'); d.className = 'rng';
+        d.innerHTML = `<i>${p}</i> from <input class="num" id="r0-${row.id}-${p}" type="text" aria-label="${p} start"> to <input class="num" id="r1-${row.id}-${p}" type="text" aria-label="${p} end">`;
+        const [a, b] = d.querySelectorAll('input');
+        a.value = row.ranges[p][0]; b.value = row.ranges[p][1];
+        a.addEventListener('input', () => { liveGreek(a); row.ranges[p][0] = a.value; schedule(200); });
+        b.addEventListener('input', () => { liveGreek(b); row.ranges[p][1] = b.value; schedule(200); });
+        ex.appendChild(d);
+      }
+    }
+    if (info.coordSys) {
+      const d = document.createElement('div'); d.className = 'rng convert';
+      d.append('Convert to ');
+      for (const t of convTargets(info.coordSys)) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'mk'; b.textContent = SYS_NAME[t];
+        b.addEventListener('click', () => {
+          try { const r = addRow(convertSet(row, t), { after: row }); r.el.scrollIntoView({ block: 'nearest' }); }
+          catch (e) { row.el.querySelector('.msg').textContent = `Couldn't convert this set: ${e.message}`; }
+        });
+        d.appendChild(b);
+      }
+      ex.appendChild(d);
+    }
+    if (info.fix) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'mk';
+      b.textContent = `Make a Cartesian copy${info.fix.srcName ? ` of ${greek(info.fix.srcName)}` : ''} and use it`;
+      b.addEventListener('click', () => {
+        try { const nr = useCartesianCopy(row, info.fix); nr.el.scrollIntoView({ block: 'nearest' }); }
+        catch (e) { row.el.querySelector('.msg').textContent = `Couldn't convert this set: ${e.message}`; }
+      });
+      ex.appendChild(b);
+    }
+    if (info.mapped && !(info.missing && info.missing.length)) {
+      const d = document.createElement('label'); d.className = 'rng both';
+      d.innerHTML = `<input type="checkbox" id="both-${row.id}"> Show both: <span class="key" style="--k:${beforeColor(row.color)}"></span> before · <span class="key" style="--k:${row.color}"></span> after ${greek(info.mapName)}`;
+      const cb = d.querySelector('input'); cb.checked = !!row.showBoth;
+      cb.addEventListener('change', () => { row.showBoth = cb.checked; schedule(0); });
+      ex.appendChild(d);
+    }
+  }
+  if (info.kind === 'calc' && !(info.missing && info.missing.length)) renderCalc(row, info);
+  if (info.kind === 'slider' && !(info.missing && info.missing.length)) {
+    const rg = ex.querySelector('.rg'), v = state.defs[info.name];
+    if (Number.isFinite(v)) {
+      if (v < row.slider.min) { row.slider.min = Math.floor(v); ex.querySelector('.mn').value = row.slider.min; rg.min = row.slider.min; }
+      if (v > row.slider.max) { row.slider.max = Math.ceil(v); ex.querySelector('.mx').value = row.slider.max; rg.max = row.slider.max; }
+      rg.step = (row.slider.max - row.slider.min) / 1000;
+      if (document.activeElement !== rg) rg.value = v;
+    }
+  }
+}
+function renderRow(row) {
+  const info = row.info, el = row.el;
+  const meta = el.querySelector('.meta'), chip = el.querySelector('.chip'), sel = el.querySelector('.sys');
+  const reads = el.querySelector('.reads'), msg = el.querySelector('.msg');
+  const k = info.kind;
+  const drawable = ['explicit', 'implicit', 'region', 'plane2d', 'curve', 'psurface', 'point', 'seq'].includes(k);
+  el.classList.toggle('nodraw', !drawable);
+  let chipHTML = '', sys = '';
+  if (k === 'explicit' || k === 'implicit' || k === 'region') { sys = info.sys; chipHTML = `<b>${SYS_LABEL[info.sys]}</b><span>${info.form}</span>`; }
+  else if (k === 'curve') chipHTML = `<b>Parametric curve</b><span>in ${info.params[0]}</span>`;
+  else if (k === 'psurface') chipHTML = `<b>Parametric surface</b><span>in ${info.params.join(', ')}</span>`;
+  else if (k === 'point') chipHTML = '<b>Point</b>';
+  else if (k === 'func') chipHTML = `<b>Function</b><span>ℝ${SUP(info.nIn)} → ℝ${SUP(info.nOut)}</span>`;
+  else if (k === 'seq') chipHTML = `<b>Sequence</b><span>in ${greek(info.v)}${isInf(row.seqRange[1]) ? ` · ${greek(info.v)} → ∞` : ''}</span>`;
+  else if (k === 'slider') chipHTML = '<b>Slider</b>';
+  else if (k === 'define') chipHTML = `<b>Constant</b><span>= ${fmtNum(state.defs[info.name] ?? NaN)}</span>`;
+  else if (k === 'calc') chipHTML = '';
+  else if (k === 'matrix') chipHTML = `<b>Matrix</b><span>${info.r} × ${info.c}</span>`;
+  else if (k === 'plane2d') chipHTML = `<b>${info.mapped && !info.dim2 ? 'Mapped planar set' : 'Planar set'}</b><span>${info.form}</span>`;
+  if (row.matrix) {
+    const bad = new Set((info.bad || []).map(([i, j]) => i * 100 + j)), C = row.matrix.cells[0].length;
+    el.querySelectorAll('.mcell').forEach((c, n) => c.classList.toggle('bad', bad.has(Math.floor(n / C) * 100 + n % C)));
+  }
+  meta.hidden = !chipHTML;
+  chip.innerHTML = chipHTML; chip.dataset.sys = sys;
+  sel.hidden = info.fromSet || !(k === 'explicit' || k === 'implicit' || k === 'region' || (k === 'error' && row.override !== 'auto'));
+  sel.value = row.override;
+  const notes = (info.rwNotes || []).concat(info.notes || []);
+  const showReads = info.reads && k !== 'slider' && notes.length > 0;
+  reads.innerHTML = '';
+  if (showReads || notes.length) {
+    if (showReads) { reads.append('reads as '); const em = document.createElement('em'); em.textContent = info.reads; reads.append(em); }
+    if (notes.length) reads.append((showReads ? ' · ' : '') + notes.join(' · '));
+  }
+  msg.textContent = k === 'error' ? info.msg : (info.missing && info.missing.length ? `${info.missing.map(greek).join(', ')} ${info.missing.length > 1 ? "aren't" : "isn't"} defined yet.` : (info.warn || ''));
+  renderExtra(row, info);
+}
+
+// ───────────────────────── update loop ─────────────────────────
+let dirty = true, timer = 0;
+function schedule(ms) { clearTimeout(timer); if (ms <= 0) dirty = true; else timer = setTimeout(() => { dirty = true; }, ms); }
+
+function update() {
+  for (const r of state.rows) {
+    if (r.matrix) continue;
+    const mm = /^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*=\s*matrix\s*$/i.exec(r.text);
+    if (mm && !COORDS.includes(mm[1])) makeMatrixRow(r, mm[1]);
+  }
+  const baseKnown = new Set([...Object.keys(FN), ...COORDS, ...PARAMS, ...Object.keys(CONSTS), ...Object.keys(SYN), ...GREEK_VARS]);
+  const isProduct = n => { // xy, rz, rtheta… split cleanly into known symbols including a coordinate
+    if (n.includes('_') || baseKnown.has(n) || n.length < 2) return false;
+    const parts = splitId(n, baseKnown);
+    return parts.every(q => baseKnown.has(q)) && parts.some(q => COORDS.includes(SYN[q] || q));
+  };
+  const userNames = new Set();
+  for (const r of state.rows) {
+    const m = r.matrix ? [0, latexToText(r.matrix.nameTex).replace(/\s+/g, '')] : /^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*=(?!=)/.exec(r.text);
+    if (m && !COORDS.includes(m[1]) && !(m[1] in CONSTS) && !(m[1] in SYN) && !FN[m[1]] && (r.matrix || !isProduct(m[1]))) userNames.add(m[1]);
+  }
+  MATS = {};
+  for (const r of state.rows) {
+    if (!r.matrix) continue;
+    r.rw = { s: '', notes: [] };
+    r.info = analyzeMatrix(r, userNames); r.info.rwNotes = [];
+    if (r.info.kind === 'matrix' && !MATS[r.info.name]) MATS[r.info.name] = { r: r.info.r, c: r.info.c, fn: r.info.fn };
+  }
+  // user functions: f(a, b, c) = …
+  USERFN = new Map(); UFN_STACK = new Set();
+  const FDEF = /^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*\(\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?(?:\s*,\s*[A-Za-z]+(?:_[A-Za-z0-9]+)?)*)\s*\)\s*=(?!=)([\s\S]*)$/;
+  const fdefs = [];
+  for (const r of state.rows) {
+    r.fdef = null; r.sdef = null;
+    if (r.matrix || isSeqText(r.text)) continue;
+    const m = FDEF.exec(r.text);
+    if (m && !COORDS.includes(m[1]) && !PARAMS.includes(m[1]) && !(m[1] in CONSTS) && !FN[m[1]] && !(m[1] in SYN) && m[1] !== 'seq' && !MATS[m[1]]) fdefs.push([r, m]);
+  }
+  for (const [r, m] of fdefs) if (!USERFN.has(m[1])) USERFN.set(m[1], { name: m[1], row: r });
+  for (const n of USERFN.keys()) userNames.add(n);
+  const real = fdefs.filter(([r, m]) => {
+    if (!isEquationLike(m, userNames)) return true;
+    if (USERFN.get(m[1]).row === r) USERFN.delete(m[1]); // an equation like a(x) = z, not a definition
+    return false;
+  });
+  for (const [r, m] of real) r.fdef = analyzeFuncDef(r, m, userNames);
+  for (const [n, U] of USERFN) if (U.node && !U.err) { try { ufnType(n); } catch (e) { U.err = e.message; } }
+  for (const U of USERFN.values()) if (U.node && !U.err) { try { U.fn = cl(U.node); } catch (e) { U.err = e.message; } }
+  // named sets: A = {(a, b, c) : …}, B = f(A), …
+  SETDEFS = new Map();
+  const cands = [];
+  for (const r of state.rows) {
+    if (r.matrix || r.fdef || isSeqText(r.text)) continue;
+    const m = /^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*=(?!=)\s*([\s\S]+)$/.exec(r.text);
+    if (m && !COORDS.includes(m[1]) && !(m[1] in CONSTS) && !USERFN.has(m[1]) && !MATS[m[1]]) cands.push([r, m[1], m[2]]);
+  }
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [r, name, rhs] of cands) {
+      if (r.sdef) continue;
+      const e = parseSetExpr(rhs);
+      if (!e) continue;
+      r.sdef = { name, expr: e }; grew = true;
+      if (!SETDEFS.has(name)) SETDEFS.set(name, { row: r, expr: e, text: rhs });
+    }
+  }
+  for (const r of state.rows) {
+    if (r.matrix) continue;
+    if (r.fdef) { r.rw = { s: r.text, notes: [] }; r.info = funcRowInfo(r); continue; }
+    if (isSeqText(r.text)) { r.rw = { s: r.text, notes: [] }; r.info = analyzeSeq(r, r.text, userNames); if (!r.info.rwNotes) r.info.rwNotes = []; continue; }
+    const se = r.sdef ? r.sdef.expr : parseSetExpr(r.text);
+    if (se) {
+      r.rw = { s: r.text, notes: [] };
+      r.info = r.sdef && SETDEFS.get(r.sdef.name).row !== r ? err(`${greek(r.sdef.name)} is defined twice.`) : analyzeSetExpr(r, se, userNames, new Set(r.sdef ? [r.sdef.name] : []));
+      if (!r.info.rwNotes) r.info.rwNotes = [];
+      r.info.fromSet = true;
+      continue;
+    }
+    const rw = rewrite(r.text, userNames);
+    r.rw = rw;
+    r.info = analyze(r, rw);
+    r.info.rwNotes = rw.notes;
+  }
+  // what each line uses: named sets and functions (and, through them, their sliders)
+  const depsOf = (text, acc) => {
+    for (const id of text.match(/[A-Za-z]+(?:_[A-Za-z0-9]+)?/g) || []) {
+      if (SETDEFS.has(id) && !acc.sets.has(id)) { acc.sets.add(id); depsOf(SETDEFS.get(id).text, acc); }
+      if (USERFN.has(id) && !acc.fns.has(id)) { acc.fns.add(id); depsOf(USERFN.get(id).src || '', acc); }
+    }
+    return acc;
+  };
+  for (const r of state.rows) {
+    if (r.matrix) { r.depSig = ''; continue; }
+    const dp = depsOf(r.fdef && USERFN.get(r.fdef.name) ? USERFN.get(r.fdef.name).src || '' : r.text, { sets: new Set(), fns: new Set() });
+    if (r.info.free) for (const n of dp.fns) for (const v of USERFN.get(n).free || []) if (!r.info.free.includes(v)) r.info.free.push(v);
+    r.depSig = JSON.stringify([[...dp.sets].map(n => SETDEFS.get(n).text), [...dp.fns].map(n => [USERFN.get(n).params, USERFN.get(n).src])]);
+  }
+  // definitions & sliders
+  const defs = {}, defRows = state.rows.filter(r => r.info.kind === 'slider' || r.info.kind === 'define' || r.info.kind === 'matrix');
+  const seen = new Set();
+  for (const r of defRows) { if (seen.has(r.info.name) || SETDEFS.has(r.info.name) || USERFN.has(r.info.name)) { r.info = Object.assign(err(`${r.info.name} is defined twice.`), { rwNotes: [] }); } seen.add(r.info.name); }
+  for (let progress = true; progress;) {
+    progress = false;
+    for (const r of defRows) {
+      if (r.info.kind === 'error' || r.info.name in defs) continue;
+      if (!r.info.free.every(n => n in defs)) continue;
+      progress = true;
+      // a matrix's "value" here is a signature so rows using it redraw when its entries change
+      defs[r.info.name] = r.info.kind === 'matrix' ? JSON.stringify([r.matrix.cells, r.info.fn(defs)]) : r.info.fn(defs);
+    }
+  }
+  state.defs = defs;
+  for (const r of state.rows) {
+    const info = r.info;
+    if (info.free) info.missing = info.free.filter(n => !(n in defs) && n !== info.name);
+    if (info.kind === 'calc') info.value = info.missing.length ? NaN : info.fn(defs);
+    const drawable = ['explicit', 'implicit', 'region', 'plane2d', 'curve', 'psurface', 'point', 'seq'].includes(info.kind) && !info.missing.length;
+    if (!drawable) {
+      if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; r.key = null; }
+      clearFly(r);
+    } else if (state.mode === 'fly' && CHUNKED.includes(info.kind) && !info.mapped) { // mapped sets are drawn whole
+      if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; r.key = null; }
+      const fkey = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.quality, state.L, r.color, info.free.map(n => defs[n])]);
+      if (!r.fly || r.fly.fkey !== fkey) resetFly(r, fkey, info, Object.assign({}, defs));
+    } else {
+      clearFly(r);
+      GEN = state.mode === 'fly' ? { box: B(), planes: [], grid: Q().grid, iso: Q().iso, fly: true } : genOrbit();
+      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth,
+        info.params && info.params.map(p => r.ranges[p]), info.kind === 'seq' && [r.seqRange, r.seqLine !== false], info.free.map(n => defs[n])]);
+      if (key !== r.key) {
+        if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; }
+        const b = { explicit: buildExplicit, implicit: buildImplicit, region: buildRegion, plane2d: buildPlane2D, curve: buildCurve, psurface: buildPSurface, point: buildPoint, seq: buildSeq }[info.kind];
+        try { r.obj = buildRowObject(r, info, defs, b); } catch (e) { info.warn = "Couldn't draw this."; }
+        r.buildWarn = info.warn || '';
+        if (r.obj) { r.obj.visible = !r.hidden; scene.add(r.obj); }
+        const empty = r.obj && !hasGeometry(r.obj);
+        r.emptyWarn = !r.obj || empty ? 'Nothing to draw inside the current range.' : '';
+        r.key = key;
+      }
+      if (!info.warn) info.warn = r.buildWarn || r.emptyWarn || '';
+    }
+    renderRow(r);
+  }
+}
+function hasGeometry(o) {
+  let any = false;
+  o.traverse(c => { if (c.isMesh && c.geometry) { const n = c.geometry.index ? c.geometry.index.count : c.geometry.attributes.position.count; if (n > 0) any = true; } });
+  return any;
+}
+
+// Painter's order for see-through shapes: farthest shape first; within a shape its back faces,
+// then its front faces, then its grid lines.
+const _box = new THREE.Box3(), _sph = new THREE.Sphere();
+function sortSeeThrough() {
+  const units = new Map();
+  const visit = o => o && o.traverse(c => {
+    if (c.userData.pass === undefined || !c.parent) return;
+    let u = units.get(c.parent); if (!u) units.set(c.parent, u = []); u.push(c);
+  });
+  for (const r of state.rows) visit(r.obj);
+  visit(world.group);
+  const list = [];
+  for (const [g, meshes] of units) {
+    if (!g.userData.center) { _box.setFromObject(g); g.userData.center = _box.isEmpty() ? new THREE.Vector3() : _box.getBoundingSphere(_sph).center.clone(); }
+    list.push([camera.position.distanceToSquared(g.userData.center), meshes]);
+  }
+  list.sort((a, b) => b[0] - a[0]);
+  list.forEach(([, meshes], i) => { for (const m of meshes) m.renderOrder = 10 + 3 * i + m.userData.pass; });
+}
+// FPS counter: frames counted over half-second windows; colour shows smooth / ok / choppy.
+const fpsEl = document.getElementById('fps'), fpsNum = fpsEl.querySelector('b');
+const fpsMeter = { frames: 0, since: 0 };
+fpsEl.addEventListener('click', () => fpsEl.classList.toggle('dim'));
+function countFrame(ts) {
+  fpsMeter.frames++;
+  if (!fpsMeter.since) fpsMeter.since = ts;
+  const span = ts - fpsMeter.since;
+  if (span >= 500) {
+    const fps = Math.round(fpsMeter.frames * 1000 / span);
+    fpsNum.textContent = fps;
+    fpsEl.style.setProperty('--fps', fps >= 50 ? '#2fbf71' : fps >= 25 ? '#e0a526' : '#e0493f');
+    fpsMeter.frames = 0; fpsMeter.since = ts;
+  }
+}
+let last = 0;
+function tick(ts) {
+  countFrame(ts);
+  const dt = Math.min(0.05, last ? (ts - last) / 1000 : 0); last = ts;
+  for (const r of state.rows) {
+    if (!r.playing || !r.info || r.info.kind !== 'slider') continue;
+    const { min, max } = r.slider;
+    let v = state.defs[r.info.name] ?? 0;
+    v += r.dir * (max - min) * dt / 6;
+    if (v >= max) { v = max; r.dir = -1; } else if (v <= min) { v = min; r.dir = 1; }
+    setSliderValue(r, v); dirty = true;
+  }
+  if (state.mode === 'fly') stepFly(dt); else controls.update();
+  if (dirty) { dirty = false; update(); }
+  if (state.mode === 'fly') flyWorldStep();
+  sortSeeThrough();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+// ───────────────────────── controls ─────────────────────────
+function updateLegend() {
+  if (state.mode === 'fly') {
+    const look = document.pointerLockElement ? 'Move the mouse to look · <span>Esc</span> releases' : 'Click the graph to look with the mouse';
+    const building = world.pct !== undefined && world.pct < 100 ? ` · building world <span>${world.pct}%</span>` : '';
+    document.getElementById('legend').innerHTML = `${look} · <span>WASD</span> move · <span>Space</span>/<span>Shift</span> up/down · speed <span>×${fly.speed.toFixed(fly.speed < 1 ? 2 : 1)}</span>${building}`;
+    return;
+  }
+  document.getElementById('legend').innerHTML = state.conv === 'math'
+    ? '<span>θ</span> around the z-axis from +x · <span>φ</span> down from +z'
+    : '<span>φ</span> around the z-axis from +x · <span>θ</span> down from +z';
+}
+function setConv(c) {
+  state.conv = c;
+  document.getElementById('conv-math').setAttribute('aria-pressed', c === 'math');
+  document.getElementById('conv-phys').setAttribute('aria-pressed', c === 'phys');
+  updateLegend(); schedule(0);
+}
+document.getElementById('conv-math').addEventListener('click', () => setConv('math'));
+document.getElementById('conv-phys').addEventListener('click', () => setConv('phys'));
+// Scale: a log slider for the box half-width; the camera scales with it so the box
+// keeps its size on screen and the graph appears to zoom.
+const SCALE_MIN = 0.5, SCALE_MAX = 1000;
+const scaleEl = document.getElementById('scale'), scaleOut = document.getElementById('scale-out'), wheelEl = document.getElementById('wheel');
+const toSlider = L => Math.round(1000 * Math.log(L / SCALE_MIN) / Math.log(SCALE_MAX / SCALE_MIN));
+const fromSlider = v => SCALE_MIN * Math.pow(SCALE_MAX / SCALE_MIN, v / 1000);
+const fmtScale = L => String(Number(L.toPrecision(L < 10 ? 2 : 3)));
+function setScale(L, fromUI) {
+  L = Math.min(SCALE_MAX, Math.max(SCALE_MIN, L));
+  const k = L / state.L;
+  if (Math.abs(k - 1) < 1e-9) return;
+  state.L = L;
+  camera.position.multiplyScalar(k); controls.target.multiplyScalar(k);
+  camera.near = L * 0.01; camera.far = L * 60; camera.updateProjectionMatrix(); controls.maxDistance = L * 12;
+  setClip(); buildHelpers(); schedule(0);
+  if (!fromUI) scaleEl.value = toSlider(L);
+  scaleOut.textContent = '±' + fmtScale(L);
+}
+scaleEl.value = toSlider(state.L);
+scaleEl.addEventListener('input', () => {
+  // snap to round numbers near the thumb (1, 2, 5, 10…) so labels stay tidy
+  let L = fromSlider(+scaleEl.value);
+  const p = Math.pow(10, Math.floor(Math.log10(L)));
+  for (const c of [1, 2, 2.5, 5, 10]) if (Math.abs(L - c * p) / L < 0.025) L = c * p;
+  setScale(L, true);
+});
+controls.enableZoom = false; // scrolling changes the scale instead of moving the camera
+renderer.domElement.addEventListener('wheel', e => {
+  if (!wheelEl.checked) return;
+  e.preventDefault();
+  const dy = Math.max(-60, Math.min(60, e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY));
+  if (state.mode === 'fly') { fly.speed = Math.min(20, Math.max(0.05, fly.speed * Math.exp(-dy * 0.004))); updateLegend(); return; }
+  setScale(state.L * Math.exp(dy * 0.004));
+}, { passive: false });
+// Resolution: how finely surfaces, solids and curves are sampled (log slider, snaps to ×1 and ×2).
+const resEl = document.getElementById('quality'), resOut = document.getElementById('quality-out');
+resEl.value = Math.round(1000 * Math.log(state.quality / RES_MIN) / Math.log(RES_MAX / RES_MIN));
+resEl.addEventListener('input', () => {
+  let f = RES_MIN * Math.pow(RES_MAX / RES_MIN, +resEl.value / 1000);
+  for (const c of [1, 1.5, 2, 3]) if (Math.abs(f - c) / c < 0.03) f = c;
+  state.quality = +f.toFixed(2);
+  resOut.textContent = '×' + (+f.toFixed(f < 1 ? 2 : 1));
+  schedule(250); // high settings take a moment to rebuild, so wait until the slider rests
+});
+document.getElementById('reset').addEventListener('click', resetView);
+// Clicking empty space in the list (below the last line) adds a line — or reuses a blank last line.
+rowsEl.addEventListener('click', e => {
+  if (e.target !== rowsEl) return;
+  const tail = state.rows[state.rows.length - 1];
+  const r = tail && !tail.matrix && !tail.text.trim() ? tail : addRow('');
+  r.mf.focus(); r.el.scrollIntoView({ block: 'nearest' });
+});
+exSel.addEventListener('change', () => {
+  const ex = EXAMPLES[+exSel.value]; exSel.value = '';
+  if (!ex) return;
+  const blank = state.rows.find(r => !r.text.trim());
+  if (blank) { setRowLatex(blank, ex.tex); blank.ranges = Object.assign({ t: ['0', '2π'], u: ['0', '2π'], v: ['0', 'π'] }, ex.ranges || {}); blank.extraSig = ''; schedule(0); }
+  else addRow(ex.tex, { ranges: ex.ranges });
+});
+document.getElementById('keys').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+document.getElementById('keys').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  let mf = lastField && document.body.contains(lastField) ? MQ(lastField) : null;
+  if (!mf) { const row = state.rows.find(r => !r.matrix && !r.text.trim()) || addRow(''); mf = row.mf; }
+  const c = b.dataset.cmd;
+  if (c === 'sq') { mf.cmd('^'); mf.typedText('2'); mf.keystroke('Right'); }
+  else if (c === '(' || c === '{') mf.typedText(c);
+  else mf.cmd(c);
+  mf.focus();
+});
+
+// ───────────────────────── fly camera ─────────────────────────
+const fly = { yaw: 0, pitch: 0, keys: new Set(), speed: 1, drag: null };
+const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE', 'KeyQ', 'ShiftLeft', 'ShiftRight']);
+window.addEventListener('keydown', e => {
+  if (state.mode !== 'fly' || !MOVE_KEYS.has(e.code)) return;
+  const t = e.target;
+  if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && t.type !== 'range' && t.type !== 'checkbox'))) return;
+  if (t && t !== document.body && t.blur) t.blur(); // so arrows/space don't also nudge a slider or press a button
+  e.preventDefault(); fly.keys.add(e.code);
+});
+window.addEventListener('keyup', e => fly.keys.delete(e.code));
+window.addEventListener('blur', () => fly.keys.clear());
+const cv = renderer.domElement;
+// Mouse: click once to capture the pointer, then just move the mouse to look (Esc releases).
+// Touch, or a browser that refuses pointer lock, falls back to drag-to-look.
+const locked = () => document.pointerLockElement === cv;
+cv.addEventListener('pointerdown', e => {
+  if (state.mode !== 'fly') return;
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  if (e.pointerType === 'mouse' && !locked() && cv.requestPointerLock) {
+    try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* drag instead */ }
+  }
+  fly.drag = { x: e.clientX, y: e.clientY, id: e.pointerId }; cv.setPointerCapture(e.pointerId);
+});
+document.addEventListener('mousemove', e => {
+  if (state.mode !== 'fly' || !locked()) return;
+  const mx = Math.max(-150, Math.min(150, e.movementX || 0)), my = Math.max(-150, Math.min(150, e.movementY || 0));
+  fly.yaw -= mx * 0.0025; // yaw is counter-clockwise from above, so moving right turns clockwise
+  fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch - my * 0.0025));
+});
+document.addEventListener('pointerlockchange', () => { if (!locked()) fly.drag = null; updateLegend(); });
+cv.addEventListener('pointermove', e => {
+  const d = fly.drag; if (!d || d.id !== e.pointerId || locked()) return;
+  fly.yaw += (e.clientX - d.x) * 0.0045;
+  fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch - (e.clientY - d.y) * 0.0045));
+  d.x = e.clientX; d.y = e.clientY;
+});
+const endDrag = e => { if (fly.drag && fly.drag.id === e.pointerId) fly.drag = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+for (const b of document.querySelectorAll('#pad button')) {
+  const code = b.dataset.code;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); fly.keys.add(code); b.setPointerCapture(e.pointerId); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => fly.keys.delete(code));
+}
+const flyDir = () => new THREE.Vector3(Math.cos(fly.pitch) * Math.cos(fly.yaw), Math.cos(fly.pitch) * Math.sin(fly.yaw), Math.sin(fly.pitch));
+// ── Fly world: an octree of fixed-size chunks around the camera ──
+// Leaf chunks near you are always the same size (so shapes look exactly as in orbit mode);
+// farther away chunks double in size and keep the same sample count (level of detail).
+// Render distance only decides which chunks exist, never how a chunk is drawn.
+const CHUNKED = ['explicit', 'implicit', 'region'];
+const world = { group: new THREE.Group(), S: 4, leaves: new Map(), camAt: null, R: 0 };
+scene.add(world.group);
+function dropObj(o) { if (o) { world.group.remove(o); disposeObj(o); } }
+function clearFly(r) {
+  if (!r.fly) return;
+  for (const e of r.fly.leaves.values()) dropObj(e.o);
+  r.fly.old.forEach(dropObj);
+  r.fly = null;
+}
+// New expression or slider value: start regenerating, but keep the old chunks on screen until replaced.
+function resetFly(r, fkey, info, defs) {
+  const old = r.fly ? r.fly.old.concat([...r.fly.leaves.values()].map(e => e.o).filter(Boolean)) : [];
+  r.fly = { fkey, info, defs, leaves: new Map(), old };
+}
+function leafPlanes(box) {
+  const C = new THREE.Vector3(...box.c);
+  return [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(n => {
+    const p = new THREE.Plane(new THREE.Vector3(...n), 0); p.constant = box.L * 1.001 - p.normal.dot(C); return p;
+  });
+}
+function computeLeaves() {
+  const S = world.S, R = state.render, cam = camera.position, out = new Map();
+  let top = 0; while (S * 2 ** top < R) top++;
+  const visit = (lvl, i, j, k) => {
+    const sz = S * 2 ** lvl, half = sz / 2, c = [(i + 0.5) * sz, (j + 0.5) * sz, (k + 0.5) * sz];
+    const d = Math.hypot(Math.max(0, Math.abs(cam.x - c[0]) - half), Math.max(0, Math.abs(cam.y - c[1]) - half), Math.max(0, Math.abs(cam.z - c[2]) - half));
+    if (d > R) return;
+    if (lvl > 0 && d < 1.5 * sz) { for (let n = 0; n < 8; n++) visit(lvl - 1, 2 * i + (n & 1), 2 * j + ((n >> 1) & 1), 2 * k + (n >> 2)); return; }
+    out.set(`${lvl}:${i},${j},${k}`, { c, L: half, d });
+  };
+  const s = S * 2 ** top, rng = v => [Math.floor((v - R) / s), Math.floor((v + R) / s)];
+  const [x0, x1] = rng(cam.x), [y0, y1] = rng(cam.y), [z0, z1] = rng(cam.z);
+  for (let i = x0; i <= x1; i++) for (let j = y0; j <= y1; j++) for (let k = z0; k <= z1; k++) visit(top, i, j, k);
+  return out;
+}
+const tmpBox = new THREE.Box3(), leafBox = new THREE.Box3(), _frustum = new THREE.Frustum(), _projView = new THREE.Matrix4(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
+function genLeaf(r, box) {
+  const f = world.S / (2 * state.L); // same sample spacing as the orbit view at the current scale
+  const q = Math.min(state.quality, 2) / state.quality; // thousands of chunks: cap the per-chunk cost at ×2
+  GEN = { box, planes: leafPlanes(box), grid: Math.max(8, Math.round(Q().grid * f * q)), iso: Math.max(6, Math.round(Q().iso * f * q)), fly: true };
+  const build = { explicit: buildExplicit, implicit: buildImplicit, region: buildRegion }[r.fly.info.kind];
+  let o = null;
+  try { o = applyRestrict(build(r.fly.info, r.fly.defs, r.color, r), r.fly.info, r.fly.defs); } catch (e) { o = null; }
+  if (o) {
+    leafBox.set(new THREE.Vector3(...box.c.map(c => c - box.L)), new THREE.Vector3(...box.c.map(c => c + box.L)));
+    tmpBox.setFromObject(o);
+    if (!hasGeometry(o) || tmpBox.isEmpty() || !tmpBox.intersectsBox(leafBox)) { disposeObj(o); o = null; }
+  }
+  if (o) { o.visible = !r.hidden; world.group.add(o); }
+  return o;
+}
+function flyWorldStep() {
+  const cam = camera.position;
+  if (!world.camAt || cam.distanceTo(world.camAt) > world.S * 0.25 || world.R !== state.render) {
+    world.leaves = computeLeaves(); world.camAt = cam.clone(); world.R = state.render;
+  }
+  // axes, grid and labels follow the camera in steps
+  const hs = niceStep(state.L / 5) * 2, hc = cam.toArray().map(v => Math.round(v / hs) * hs);
+  if (!state.helpC || world.helpR !== state.render || hc.some((v, i) => v !== state.helpC[i])) { state.helpC = hc; world.helpR = state.render; buildHelpers(); }
+  const rows = state.rows.filter(r => r.fly);
+  const todo = [];
+  // chunks in view first (nearest first), then the ones behind you
+  camera.updateMatrixWorld();
+  _frustum.setFromProjectionMatrix(_projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  const inView = box => { leafBox.set(_v1.set(box.c[0] - box.L, box.c[1] - box.L, box.c[2] - box.L), _v2.set(box.c[0] + box.L, box.c[1] + box.L, box.c[2] + box.L)); return _frustum.intersectsBox(leafBox); };
+  const viewKeys = [];
+  for (const [k, box] of world.leaves) if (inView(box)) viewKeys.push(k);
+  const viewSet = new Set(viewKeys);
+  for (const r of rows) for (const [k, box] of world.leaves) if (!r.fly.leaves.has(k)) todo.push([box.d + (viewSet.has(k) ? 0 : 1e6), r, k, box]);
+  todo.sort((a, b) => a[0] - b[0]);
+  const total = rows.length * world.leaves.size, pct = total ? Math.floor(100 * (1 - todo.length / total)) : 100;
+  if (pct !== world.pct) { world.pct = pct; updateLegend(); }
+  const t0 = performance.now();
+  for (const [, r, k, box] of todo) {
+    if (performance.now() - t0 > 12) break; // spread the work across frames
+    r.fly.leaves.set(k, { o: genLeaf(r, box), box });
+  }
+  for (const r of rows) {
+    // once everything in view is rebuilt, retire the previous level of detail (overlapping copies shimmer)
+    const done = viewKeys.every(k => r.fly.leaves.has(k));
+    for (const [k, e] of r.fly.leaves) {
+      if (world.leaves.has(k)) continue;
+      const far = Math.hypot(...e.box.c.map((c, i) => Math.max(0, Math.abs(cam.getComponent(i) - c) - e.box.L))) > state.render;
+      if (done || far) { dropObj(e.o); r.fly.leaves.delete(k); } // swap LOD only once replacements exist
+    }
+    if (done && r.fly.old.length) { r.fly.old.forEach(dropObj); r.fly.old = []; }
+    else if (r.fly.old.length > 4000) r.fly.old.splice(0, 2000).forEach(dropObj);
+  }
+}
+function stepFly(dt) {
+  const k = fly.keys, f = flyDir(), right = new THREE.Vector3(Math.sin(fly.yaw), -Math.cos(fly.yaw), 0), v = new THREE.Vector3();
+  if (k.has('KeyW') || k.has('ArrowUp')) v.add(f);
+  if (k.has('KeyS') || k.has('ArrowDown')) v.sub(f);
+  if (k.has('KeyD') || k.has('ArrowRight')) v.add(right);
+  if (k.has('KeyA') || k.has('ArrowLeft')) v.sub(right);
+  if (k.has('Space') || k.has('KeyE')) v.z += 1;
+  if (k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyQ')) v.z -= 1;
+  if (v.lengthSq() > 0) camera.position.addScaledVector(v.normalize(), state.L * 1.2 * fly.speed * dt);
+  camera.lookAt(camera.position.clone().add(f));
+}
+function setMode(m) {
+  if (m === state.mode) return;
+  const flying = m === 'fly';
+  if (flying) {
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    fly.yaw = Math.atan2(d.y, d.x); fly.pitch = Math.asin(Math.max(-1, Math.min(1, d.z)));
+    // start inside the world, a comfortable distance from what you were looking at
+    if (camera.position.distanceTo(controls.target) > state.render * 0.6)
+      camera.position.copy(controls.target).addScaledVector(d, -state.render * 0.6);
+    state.mode = 'fly'; controls.enabled = false;
+    world.S = state.L * 0.8; world.camAt = null; state.helpC = null;
+  } else {
+    state.mode = 'orbit'; controls.enabled = true; fly.keys.clear(); fly.drag = null;
+    if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+    state.rows.forEach(clearFly); world.leaves = new Map();
+    resetView(); setClip(); buildHelpers();
+  }
+  setCamRange(); schedule(0);
+  document.getElementById('mode-orbit').setAttribute('aria-pressed', !flying);
+  document.getElementById('mode-fly').setAttribute('aria-pressed', flying);
+  document.querySelector('.stage').classList.toggle('flying', flying);
+  document.getElementById('cross').hidden = !flying;
+  document.getElementById('pad').hidden = !flying;
+  document.getElementById('render-wrap').hidden = !flying;
+  document.querySelector('.scale:not(#render-wrap)').hidden = flying;
+  document.getElementById('wheel-label').textContent = flying ? 'Scroll sets speed' : 'Scroll to zoom';
+  updateLegend();
+}
+document.getElementById('mode-orbit').addEventListener('click', () => setMode('orbit'));
+document.getElementById('mode-fly').addEventListener('click', () => setMode('fly'));
+
+const RD_MIN = 2, RD_MAX = 1000;
+const renderEl = document.getElementById('render'), renderOut = document.getElementById('render-out');
+renderEl.value = Math.round(1000 * Math.log(state.render / RD_MIN) / Math.log(RD_MAX / RD_MIN));
+renderEl.addEventListener('input', () => {
+  let R = RD_MIN * Math.pow(RD_MAX / RD_MIN, +renderEl.value / 1000);
+  const p = Math.pow(10, Math.floor(Math.log10(R)));
+  for (const c of [1, 2, 2.5, 5, 10]) if (Math.abs(R - c * p) / R < 0.025) R = c * p;
+  state.render = R;
+  renderOut.textContent = fmtScale(R);
+  setCamRange();
+});
+
+// Sidebar: hide it to give the graph the whole window (remembered per browser).
+function setSidebar(open) {
+  document.querySelector('.app').classList.toggle('collapsed', !open);
+  document.getElementById('expand').hidden = open;
+  try { localStorage.setItem('locus-sidebar', open ? 'open' : 'closed'); } catch (e) { /* storage unavailable */ }
+}
+document.getElementById('collapse').addEventListener('click', () => setSidebar(false));
+document.getElementById('expand').addEventListener('click', () => setSidebar(true));
+try { if (localStorage.getItem('locus-sidebar') === 'closed') setSidebar(false); } catch (e) { /* storage unavailable */ }
+
+const themeRefresh = () => { buildHelpers(); };
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeRefresh);
+new MutationObserver(themeRefresh).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(themeRefresh);
+
+// ───────────────────────── boot ─────────────────────────
+setClip(); buildHelpers(); resetView(); resize(); updateLegend();
+addRow(String.raw`roh=2+0.4\sin\left(3\theta\right)\sin\left(2\phi\right)`);
+addRow(String.raw`\left(r-3.6\right)^2+z^2=0.45`);
+addRow(String.raw`z=a\cos\left(2r\right)-3.6`);
+addRow('a=1');
+addRow(String.raw`\left(4.7\cos\left(t\right),4.7\sin\left(t\right),\frac{t}{4}\right)`, { ranges: { t: ['-4π', '4π'] } });
+requestAnimationFrame(tick);
+})();
+</script>
