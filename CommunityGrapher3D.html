@@ -552,7 +552,7 @@ button{cursor:pointer}
 .reads em{font-style:normal;color:var(--ink)}
 .msg{font-size:12.5px;color:var(--err)}
 .msg:empty,.reads:empty,.extra:empty{display:none}
-.extra{display:flex;flex-direction:column;gap:6px}
+.extra,.miss{display:flex;flex-direction:column;gap:6px}
 .calc{display:flex;align-items:center;gap:8px;font-size:19px;color:var(--ink)}
 .calc-eq{font-family:"STIX Two Text","Times New Roman",serif;color:var(--muted)}
 .calc-val .mq-math-mode,.calc-val.mq-math-mode{font-family:"STIX Two Text","Times New Roman",Symbola,serif;font-size:20px}
@@ -734,7 +734,8 @@ const FN = {
   sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, asinh: Math.asinh, acosh: Math.acosh, atanh: Math.atanh,
   sqrt: Math.sqrt, cbrt: Math.cbrt, exp: Math.exp, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round,
   sign: Math.sign, min: Math.min, max: Math.max, pow: (a, b) => H.pow(a, b), mod: H.mod,
-  log: (x, b) => b === undefined ? Math.log(x) : Math.log(x) / Math.log(b), log10: Math.log10, log2: Math.log2,
+  // the user's log is log10 (ln is log), so log(x, b) arrives here as log10(x, b)
+  log: (x, b) => b === undefined ? Math.log(x) : Math.log(x) / Math.log(b), log10: (x, b) => b === undefined ? Math.log10(x) : Math.log(x) / Math.log(b), log2: Math.log2,
   nthRoot: (x, n) => H.pow(x, 1 / n),
 };
 const CONSTS = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI };
@@ -754,7 +755,7 @@ const GREEK = {
 // Greek letter names that stand for a single variable (never split into letters).
 const GREEK_VARS = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'sigma', 'upsilon', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Lambda', 'Sigma', 'Omega', 'Psi'];
 SYN.varepsilon = 'epsilon';
-const texName = n => (GREEK_VARS.includes(n) || n in GREEK ? '\\' + n : n.replace(/_([A-Za-z0-9]+)/, '_{$1}'));
+const texName = n => n.replace(/^[A-Za-z]+/, b => (GREEK_VARS.includes(b) || b in GREEK ? '\\' + b : b)).replace(/_([A-Za-z0-9]+)/, '_{$1}'); // α_c → \alpha_{c}
 function greek(str) {
   return str.replace(/\b([A-Za-z]+)\b/g, m => (GREEK[m] && m !== 'roh' ? GREEK[m] : m));
 }
@@ -800,7 +801,7 @@ function latexToText(src) {
       if (c === '\\') out += cmd();
       else if (c === '{') { i++; out += '(' + seq('}') + ')'; i++; }
       else if (c === '^') { i++; out += '^(' + group() + ')'; }
-      else if (c === '_') { i++; out += '_' + group().replace(/[^A-Za-z0-9]/g, '') + ' '; } // R_x stays one name; a_1x is a_1·x
+      else if (c === '_') { i++; out = out.replace(/ +$/, '') + '_' + group().replace(/[^A-Za-z0-9]/g, '') + ' '; } // R_x and \alpha_1 stay one name; a_1x is a_1·x
       else { out += c; i++; }
     }
     return out;
@@ -828,7 +829,10 @@ function rewrite(src, userNames) {
   while ((m = re.exec(s))) {
     if (m[1]) toks.push({ t: 'id', v: m[1] });
     else if (m[2]) {
-      const parts = known.has(m[2]) || m[2].includes('_') ? [m[2]] : splitId(m[2], known);
+      // a subscript belongs to the letter just before it: xa_1 is x·a_1, like a_1x is a_1·x
+      const k = m[2].indexOf('_'), base = k < 0 ? m[2] : m[2].slice(0, k);
+      let parts = [m[2]];
+      if (!known.has(m[2]) && !known.has(base)) { parts = splitId(base, known); if (k >= 0) parts[parts.length - 1] += m[2].slice(k); }
       if (parts.length > 1) notes.push(`${m[2]} → ${parts.map(p => GREEK[SYN[p] || p] || SYN[p] || p).join('·')}`);
       for (const p of parts) {
         const mapped = SYN[p] || p;
@@ -865,6 +869,21 @@ function matchParen(toks, i) {
   }
   return -1;
 }
+// Index just past the function application starting at toks[j]: f(…), f^2(…), f^2 x, f x y, f g x.
+function appEnd(toks, j) {
+  let e = j + 1;
+  if (toks[e] && toks[e].v === '^' && toks[e + 1]) {
+    if (toks[e + 1].t === 'num') e += 2;
+    else if (toks[e + 1].v === '(') { const m = matchParen(toks, e + 1); if (m < 0) return toks.length; e = m + 1; }
+  }
+  if (toks[e] && toks[e].v === '(') { const m = matchParen(toks, e); return m < 0 ? toks.length : m + 1; }
+  if (toks[e] && toks[e].t === 'id' && isFn(toks[e].v)) return appEnd(toks, e);
+  while (e < toks.length && (toks[e].t === 'num' || (toks[e].t === 'id' && !isFn(toks[e].v)))) {
+    e++;
+    if (toks[e] && toks[e].v === '^' && toks[e + 1] && toks[e + 1].t !== 'op') e += 2;
+  }
+  return e;
+}
 function emit(toks) {
   const out = [];
   const push = (s, a, b) => { const p = out[out.length - 1]; if (p && p.b && a) out.push({ s: '*', a: false, b: false }); out.push({ s, a, b }); };
@@ -899,6 +918,10 @@ function emit(toks) {
             arg.push(q); j++;
             if (toks[j] && toks[j].v === '^' && toks[j + 1] && toks[j + 1].t !== 'op') { arg.push(toks[j], toks[j + 1]); j += 2; }
           } else break;
+        }
+        const end = !arg.length && toks[j] && toks[j].t === 'id' && isFn(toks[j].v) ? appEnd(toks, j) : 0;
+        if (end > j + 1) { // sin cos x: the argument is the whole application that follows (gluing them gave "sincos")
+          push(`${k.v}(${emit(toks.slice(j, end))})`, true, true); i = end; continue;
         }
         if (!arg.length) { push(k.v, true, false); i++; continue; }
         push(`${k.v}(${emit(arg)})`, true, true); i = j; continue;
@@ -1248,34 +1271,36 @@ function analyze(row, rw) {
 // conditions (chained, or joined by "and" / commas) intersect via max().
 const OPS = { '<': '<', '>': '>', '<=': '≤', '>=': '≥' };
 function analyzeRegion(row, s, conv) {
-  const clauses = splitTop(s, [';', ',']).map(c => c.trim()).filter(Boolean);
-  const gs = [], reads = [], allNodes = [];
-  for (const c of clauses) {
-    const parts = c.split(/(<=|>=|<|>)/);
-    if (parts.length < 3 || parts.length > 5) return err('Write a condition like z ≤ x² + y² or 1 < ρ < 2.');
-    const exprs = parts.filter((_, i) => i % 2 === 0);
-    if (exprs.some(p => !p.trim())) return err('Something is missing on one side of the inequality.');
-    if (exprs.some(p => p.includes('='))) return err('Mixing = and < in one condition — split them with “and”.');
-    const nodes = exprs.map(parse); allNodes.push(...nodes);
-    const fns = nodes.map(cl);
-    for (let i = 1; i < parts.length; i += 2) {
-      const A = fns[(i - 1) / 2], B = fns[(i + 1) / 2];
-      gs.push(parts[i][0] === '<' ? q => A(q) - B(q) : q => B(q) - A(q));
+  try { // sets call this directly, so a half-typed condition must come back as a message, not a throw
+    const clauses = splitTop(s, [';', ',']).map(c => c.trim()).filter(Boolean);
+    const gs = [], reads = [], allNodes = [];
+    for (const c of clauses) {
+      const parts = c.split(/(<=|>=|<|>)/);
+      if (parts.length < 3 || parts.length > 5) return err('Write a condition like z ≤ x² + y² or 1 < ρ < 2.');
+      const exprs = parts.filter((_, i) => i % 2 === 0);
+      if (exprs.some(p => !p.trim())) return err('Something is missing on one side of the inequality.');
+      if (exprs.some(p => p.includes('='))) return err('Mixing = and < in one condition — split them with “and”.');
+      const nodes = exprs.map(parse); allNodes.push(...nodes);
+      const fns = nodes.map(cl);
+      for (let i = 1; i < parts.length; i += 2) {
+        const A = fns[(i - 1) / 2], B = fns[(i + 1) / 2];
+        gs.push(parts[i][0] === '<' ? q => A(q) - B(q) : q => B(q) - A(q));
+      }
+      reads.push(nodes.map((n, i) => fmtNode(n) + (i < nodes.length - 1 ? ` ${OPS[parts[2 * i + 1]]} ` : '')).join(''));
     }
-    reads.push(nodes.map((n, i) => fmtNode(n) + (i < nodes.length - 1 ? ` ${OPS[parts[2 * i + 1]]} ` : '')).join(''));
-  }
-  const syms = new Set(allNodes.flatMap(n => [...symbolsOf(n)]));
-  const S = new Set([...syms].filter(n => COORDS.includes(n)));
-  const free = [...syms].filter(n => !COORDS.includes(n) && !(n in CONSTS));
-  if (!S.size) return err('No coordinates here — include x, y, z, r, ρ, θ or φ.');
-  let sys = detectSystem(S, conv, row.override), map = roleMap(sys, conv);
-  if (sys !== 'mixed' && [...S].some(n => !(n in map))) { sys = 'mixed'; map = {}; }
-  const fn = gs.length === 1 ? gs[0] : q => {
-    let m = -Infinity;
-    for (const g of gs) { const v = g(q); if (Number.isNaN(v)) return NaN; if (v > m) m = v; }
-    return m;
-  };
-  return { kind: 'region', sys, map, fn, gs, free, notes: [], form: 'solid region', reads: reads.join(' and ') };
+    const syms = new Set(allNodes.flatMap(n => [...symbolsOf(n)]));
+    const S = new Set([...syms].filter(n => COORDS.includes(n)));
+    const free = [...syms].filter(n => !COORDS.includes(n) && !(n in CONSTS));
+    if (!S.size) return err('No coordinates here — include x, y, z, r, ρ, θ or φ.');
+    let sys = detectSystem(S, conv, row.override), map = roleMap(sys, conv);
+    if (sys !== 'mixed' && [...S].some(n => !(n in map))) { sys = 'mixed'; map = {}; }
+    const fn = gs.length === 1 ? gs[0] : q => {
+      let m = -Infinity;
+      for (const g of gs) { const v = g(q); if (Number.isNaN(v)) return NaN; if (v > m) m = v; }
+      return m;
+    };
+    return { kind: 'region', sys, map, fn, gs, free, notes: [], form: 'solid region', reads: reads.join(' and ') };
+  } catch (e) { return err(e.message); }
 }
 
 // Set-builder notation.
@@ -1283,7 +1308,8 @@ function analyzeRegion(row, s, conv) {
 //                      a surface and any inequalities trim it (no equation → a solid region).
 //   {(f(t), g(t), h(t)) : t ∈ [a, b]} — the image of a parametrisation, with its range.
 const isSetText = t => /^\s*\{[\s\S]*\}\s*$/.test(t) && splitTop(t.trim().slice(1, -1), [':']).length > 1;
-function analyzeSet(row, text, userNames) {
+// condRw: the condition already rewritten (rewriting twice would turn ln into log10)
+function analyzeSet(row, text, userNames, condRw) {
   const inner = text.trim().slice(1, -1), k = splitTop(inner, [':'])[0].length;
   let head = inner.slice(0, k).trim().replace(/ℝ/g, 'R'), cond = inner.slice(k + 1).trim();
   head = head.replace(/\s*(in|∈)\s*R\s*(\^\s*\(?\s*\d\s*\)?)?\s*$/, '').trim();
@@ -1302,7 +1328,7 @@ function analyzeSet(row, text, userNames) {
     let c2 = crw.s;
     nm.forEach((n, i) => { c2 = c2.replace(new RegExp(`\\b${n}\\b`, 'g'), `__q${i}`); });
     nm.forEach((n, i) => { c2 = c2.replace(new RegExp(`__q${i}\\b`, 'g'), to[i]); });
-    const info = analyzeSet(row, `{(${to.join(', ')}) : ${c2}}`, userNames);
+    const info = analyzeSet(row, `{(${to.join(', ')}) : ${c2}}`, userNames, { s: c2, notes: [] });
     if (info.kind === 'error') return info;
     info.notes = (info.notes || []).filter(q => !q.startsWith('set of')).concat([`(${shown}) read as Cartesian (${to.join(', ')})${nm.length === 2 ? ' in the xy-plane' : ''}`]);
     delete info.coordSys; info.coordNames = nm; info.cartRenamed = true;
@@ -1310,7 +1336,7 @@ function analyzeSet(row, text, userNames) {
     return info;
   }
   if (hnode.type === 'ArrayNode' && hnode.items.length === 2 && hnode.items.every(n => n.type === 'SymbolNode' && ['x', 'y', 'r', 'rho', 'theta', 'phi'].includes(n.name))) {
-    return analyzePlaneSet(hnode.items.map(n => n.name), cond, userNames, hrw);
+    return analyzePlaneSet(hnode.items.map(n => n.name), cond, userNames, hrw, condRw);
   }
   const flat2 = hnode.type === 'ArrayNode' && hnode.items.length === 2;
   if (flat2) hrw.s = hrw.s.replace(/\]\s*$/, ',0]'); // (f(t), g(t)) lies in the xy-plane
@@ -1321,7 +1347,7 @@ function analyzeSet(row, text, userNames) {
     else if (S.has('z') && S.size === 3) sys = 'cyl';
     else if (S.has('theta') && S.has('phi')) sys = 'sph';
     else return err('Use (x, y, z), (r, θ, z) or (ρ, θ, φ) before the colon.');
-    const pseudo = { override: sys }, crw = rewrite(cond, userNames);
+    const pseudo = { override: sys }, crw = condRw || rewrite(cond, userNames);
     const azName = conv === 'math' ? 'theta' : 'phi', ang = names.find(n => n === 'theta' || n === 'phi');
     if (sys === 'cyl' && ang && ang !== azName) // e.g. (ρ, φ, z) in Math mode: φ is this set's azimuth
       crw.s = crw.s.replace(/\b(theta|phi)\b/g, w => (w === ang ? azName : ang));
@@ -1367,11 +1393,11 @@ function analyzeSet(row, text, userNames) {
   return info;
 }
 // {(x, y) : …} or {(r, θ) : …}: a set in the plane, drawn flat in z = 0.
-function analyzePlaneSet(names, cond, userNames, hrw) {
+function analyzePlaneSet(names, cond, userNames, hrw, condRw) {
   const S = new Set(names);
   if (!((S.has('x') && S.has('y')) || ((S.has('r') || S.has('rho')) && (S.has('theta') || S.has('phi')))))
     return err('Use (x, y) or (r, θ) before the colon.');
-  const crw = rewrite(cond, userNames);
+  const crw = condRw || rewrite(cond, userNames);
   const clauses = splitTop(crw.s, [';', ',']).map(c => c.trim()).filter(Boolean);
   const eqs = clauses.filter(c => !/[<>]/.test(c)), ineqs = clauses.filter(c => /[<>]/.test(c));
   if (eqs.length > 1) return err('A set can have one equation — use inequalities to cut it down.');
@@ -1789,8 +1815,8 @@ function useCartesianCopy(row, fix) {
   else for (let i = 1; ; i++) if (!taken.has('S_' + i)) { name = 'S_' + i; break; }
   let latex = row.latex;
   if (fix.refName) {
-    const [b, sub] = fix.refName.split('_');
-    const re = new RegExp(`(?<![A-Za-z\\\\])${b}${sub ? `_(?:\\{${sub}\\}|${sub})` : ''}(?![A-Za-z0-9_])`, 'g');
+    const [b, sub] = fix.refName.split('_'), isGreek = GREEK_VARS.includes(b) || b in GREEK; // a Greek name is written \alpha
+    const re = new RegExp(`${isGreek ? `\\\\${b}` : `(?<![A-Za-z\\\\])${b}`}${sub ? `_(?:\\{${sub}\\}|${sub})` : ''}(?![A-Za-z0-9_])`, 'g');
     latex = latex.replace(re, texName(name));
   } else { // replace the set written inside the brackets
     const i = latex.indexOf('\\left\\{');
@@ -2701,21 +2727,28 @@ function renderCalc(row, info) {
 }
 function renderExtra(row, info) {
   const ex = row.el.querySelector('.extra');
+  const miss = info.missing && info.missing.length ? info.missing : [];
+  // these rows' own range boxes can name sliders, so the boxes stay while a name is missing
+  // (otherwise typing "inf" or a slider's name would throw the box away at the first letter)
+  const ranged = info.kind === 'seq' || info.kind === 'curve' || info.kind === 'psurface';
+  const sliderButton = n => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'mk'; b.textContent = `+ Add slider for ${greek(n)}`;
+    b.addEventListener('click', () => addRow(`${texName(n)}=1`, { after: row }));
+    return b;
+  };
   let sig = info.kind;
   if (info.kind === 'seq') sig += info.v;
   if (info.kind === 'curve' || info.kind === 'psurface') sig += info.params.filter(p => !(info.setRanges && info.setRanges[p])).join('');
   if (info.mapped) sig += '|map:' + info.mapName;
   if (info.fix) sig += '|fix:' + info.fix.coordSys + (info.fix.refName || '');
-  if (info.coordSys) sig += '|conv:' + info.coordSys;
-  if (info.missing && info.missing.length) sig = 'missing' + info.missing.join(',');
+  // only a set written out on this line can be converted; a line like B = A just names one
+  const convertible = info.coordSys && !info.refName;
+  if (convertible) sig += '|conv:' + info.coordSys;
+  if (miss.length && !ranged) sig = 'missing' + miss.join(',');
   if (sig !== row.extraSig) {
     row.extraSig = sig; ex.innerHTML = '';
-    if (info.missing && info.missing.length) {
-      for (const n of info.missing) {
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'mk'; b.textContent = `+ Add slider for ${greek(n)}`;
-        b.addEventListener('click', () => addRow(`${texName(n)}=1`, { after: row }));
-        ex.appendChild(b);
-      }
+    if (miss.length && !ranged) {
+      for (const n of miss) ex.appendChild(sliderButton(n));
     } else if (info.kind === 'calc') {
       ex.innerHTML = `<div class="calc"><span class="calc-eq">=</span><span class="calc-val"></span>
         <button type="button" class="frac" aria-pressed="false" title="Show as a fraction">a/b</button></div><div class="calc-note"></div>`;
@@ -2771,7 +2804,7 @@ function renderExtra(row, info) {
         ex.appendChild(d);
       }
     }
-    if (info.coordSys) {
+    if (convertible) {
       const d = document.createElement('div'); d.className = 'rng convert';
       d.append('Convert to ');
       for (const t of convTargets(info.coordSys)) {
@@ -2793,12 +2826,21 @@ function renderExtra(row, info) {
       });
       ex.appendChild(b);
     }
-    if (info.mapped && !(info.missing && info.missing.length)) {
+    if (info.mapped && !(miss.length && !ranged)) {
       const d = document.createElement('label'); d.className = 'rng both';
       d.innerHTML = `<input type="checkbox" id="both-${row.id}"> Show both: <span class="key" style="--k:${beforeColor(row.color)}"></span> before · <span class="key" style="--k:${row.color}"></span> after ${greek(info.mapName)}`;
       const cb = d.querySelector('input'); cb.checked = !!row.showBoth;
       cb.addEventListener('change', () => { row.showBoth = cb.checked; schedule(0); });
       ex.appendChild(d);
+    }
+  }
+  if (ranged) { // the add-slider buttons sit above the range boxes and change without rebuilding them
+    let box = ex.querySelector('.miss');
+    const ms = miss.join(',');
+    if (!miss.length) { if (box) box.remove(); }
+    else {
+      if (!box) { box = document.createElement('div'); box.className = 'miss'; ex.prepend(box); }
+      if (box.dataset.sig !== ms) { box.dataset.sig = ms; box.replaceChildren(...miss.map(sliderButton)); }
     }
   }
   if (info.kind === 'calc' && !(info.missing && info.missing.length)) renderCalc(row, info);
@@ -2890,14 +2932,21 @@ function update() {
   }
   for (const [r, m] of fdefs) if (!USERFN.has(m[1])) USERFN.set(m[1], { name: m[1], row: r });
   for (const n of USERFN.keys()) userNames.add(n);
-  const real = fdefs.filter(([r, m]) => {
-    if (!isEquationLike(m, userNames)) return true;
-    if (USERFN.get(m[1]).row === r) USERFN.delete(m[1]); // an equation like a(x) = z, not a definition
-    return false;
-  });
+  const real = fdefs.filter(([r, m]) => !isEquationLike(m, userNames)); // a(x) = z is an equation, not a definition
+  USERFN = new Map(); // owned by the first real definition, even when an equation like a(x) = z comes before it
+  for (const [r, m] of real) if (!USERFN.has(m[1])) USERFN.set(m[1], { name: m[1], row: r });
   for (const [r, m] of real) r.fdef = analyzeFuncDef(r, m, userNames);
   for (const [n, U] of USERFN) if (U.node && !U.err) { try { ufnType(n); } catch (e) { U.err = e.message; } }
   for (const U of USERFN.values()) if (U.node && !U.err) { try { U.fn = cl(U.node); } catch (e) { U.err = e.message; } }
+  // a function that calls a broken one is broken too (it may have compiled before the other one failed)
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const U of USERFN.values()) {
+      if (!U.node || U.err) continue;
+      const bad = U.node.filter(n => n.type === 'FunctionNode' && USERFN.has(n.fn.name) && USERFN.get(n.fn.name).err)[0];
+      if (bad) { U.err = `${greek(bad.fn.name)} has a problem — fix its definition first.`; changed = true; }
+    }
+  }
   // named sets: A = {(a, b, c) : …}, B = f(A), …
   SETDEFS = new Map();
   const cands = [];
@@ -2933,6 +2982,18 @@ function update() {
     r.info = analyze(r, rw);
     r.info.rwNotes = rw.notes;
   }
+  // sliders in a curve's or surface's parameter ranges count too, so moving one redraws it
+  for (const r of state.rows) {
+    const info = r.info;
+    if (info.kind !== 'curve' && info.kind !== 'psurface') continue;
+    for (const p of info.params) for (const q of (info.setRanges && info.setRanges[p]) || r.ranges[p] || []) {
+      if (q == null || !String(q).trim()) continue;
+      try {
+        for (const n of symbolsOf(parse(rewrite(String(q), userNames).s)))
+          if (!(n in CONSTS) && !COORDS.includes(n) && !PARAMS.includes(n) && !info.free.includes(n)) info.free.push(n);
+      } catch (e) { /* unreadable: the default range is used */ }
+    }
+  }
   // what each line uses: named sets and functions (and, through them, their sliders)
   const depsOf = (text, acc) => {
     for (const id of text.match(/[A-Za-z]+(?:_[A-Za-z0-9]+)?/g) || []) {
@@ -2962,9 +3023,17 @@ function update() {
     }
   }
   state.defs = defs;
+  // b = k + 1 is defined, just waiting on k: lines using b should ask for k, not offer a second b
+  const waiting = new Map(defRows.filter(r => r.info.kind !== 'error' && !(r.info.name in defs)).map(r => [r.info.name, r.info.free]));
+  const missingOf = (names, self) => {
+    const out = new Set(), seen = new Set([self]);
+    const go = n => { if (n in defs || seen.has(n)) return; seen.add(n); if (waiting.has(n)) waiting.get(n).forEach(go); else out.add(n); };
+    names.forEach(go);
+    return out.size ? [...out] : names.filter(n => !(n in defs) && n !== self); // definitions that wait on each other
+  };
   for (const r of state.rows) {
     const info = r.info;
-    if (info.free) info.missing = info.free.filter(n => !(n in defs) && n !== info.name);
+    if (info.free) info.missing = missingOf(info.free, info.name);
     if (info.kind === 'calc') info.value = info.missing.length ? NaN : info.fn(defs);
     const drawable = ['explicit', 'implicit', 'region', 'plane2d', 'curve', 'psurface', 'point', 'seq'].includes(info.kind) && !info.missing.length;
     if (!drawable) {
@@ -3178,8 +3247,9 @@ document.addEventListener('mousemove', e => {
 document.addEventListener('pointerlockchange', () => { if (!locked()) fly.drag = null; updateLegend(); });
 cv.addEventListener('pointermove', e => {
   const d = fly.drag; if (!d || d.id !== e.pointerId || locked()) return;
+  // drag the world, on both axes: dragging right turns left, dragging down tilts up
   fly.yaw += (e.clientX - d.x) * 0.0045;
-  fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch - (e.clientY - d.y) * 0.0045));
+  fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch + (e.clientY - d.y) * 0.0045));
   d.x = e.clientX; d.y = e.clientY;
 });
 const endDrag = e => { if (fly.drag && fly.drag.id === e.pointerId) fly.drag = null; };

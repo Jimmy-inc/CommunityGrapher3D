@@ -98,7 +98,8 @@ The input works like Desmos: what you type is shown as real math.
 
 - Multiplication can be implied: `2x`, `xy`, `rsinφ`, `a(x+1)`.
 - Run-together letters are split into known names: `xy` is read as x·y, `rz` as r·z, `rsinθ` as r·sin θ. The *reads as* note shows how it was split.
-- A letter with a subscript is one name: `a_1` (type `a_1`) is a single variable, and `a_1x` is a₁·x.
+- A letter with a subscript is one name: `a_1` (type `a_1`) is a single variable, and `a_1x` and `xa_1` are both x·a₁.
+- Functions can be stacked without brackets: `sin cos x` is sin(cos x).
 - `sin^2(x)` means (sin x)².
 - `|x|` is the absolute value.
 - `n!` is the factorial. It works for non-whole numbers too, through the gamma function.
