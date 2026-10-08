@@ -553,6 +553,16 @@ button{cursor:pointer}
 .msg{font-size:12.5px;color:var(--err)}
 .msg:empty,.reads:empty,.extra:empty{display:none}
 .extra,.miss{display:flex;flex-direction:column;gap:6px}
+.flegend{display:flex;align-items:flex-start;gap:8px;font:500 11px "JetBrains Mono",ui-monospace,monospace;color:var(--muted);font-variant-numeric:tabular-nums}
+.flegend .lg-name{color:var(--ink);white-space:nowrap;line-height:10px}
+.flegend .lg-grid{flex:1;min-width:0;display:grid;gap:3px}
+.flegend .lg-bar,.flegend .lg-lab{display:grid;gap:2px}
+.flegend .lg-bar i{height:10px;border-radius:2px}
+.flegend .lg-lab span{text-align:center;white-space:nowrap;overflow:hidden}
+.flegend .lg-ramp{height:8px;border-radius:2px}
+.flegend .lg-ends{display:flex;justify-content:space-between}
+.flegend .lg-items{display:flex;flex-wrap:wrap;gap:4px 12px}
+.flegend .lg-items i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
 .calc{display:flex;align-items:center;gap:8px;font-size:19px;color:var(--ink)}
 .calc-eq{font-family:"STIX Two Text","Times New Roman",serif;color:var(--muted)}
 .calc-val .mq-math-mode,.calc-val.mq-math-mode{font-family:"STIX Two Text","Times New Roman",Symbola,serif;font-size:20px}
@@ -653,6 +663,8 @@ details.help code{font-family:"JetBrains Mono",monospace;color:var(--ink);font-s
         <li><code>A = Matrix</code> → a matrix you can edit and resize; <code>A(cos t, sin t, 0)</code> multiplies it by a vector</li>
         <li><code>seq(k)(1/k, 1/(3k), 1/(2k))</code> → a sequence drawn as dots, one per term; set which <code>k</code> values under it, or press <code>∞</code> to go on forever; a line joins the terms in order (untick <b>Connect the dots</b> to hide it), and the first term is the bigger dot</li>
         <li>Functions: <code>f(a, b, c) = (3a, 2b, 4c)</code>, then <code>f({(a, b, c) : a² + b² + c² = 1})</code> draws the image of the set; name a set with <code>A = {…}</code> and use <code>f(A)</code>. Functions also work in any line, like <code>f(cos t, sin t, t)</code></li>
+        <li>A function line draws itself: <code>q(x) = x²</code> a graph, <code>F(x, y) = (−y, x)</code> arrows, <code>f(x, y, z) = x² + y²</code> level surfaces, <code>g(u, v) = (…, …, …)</code> a surface. Pick another view in the menu next to it; a function used on other lines starts hidden (click its dot)</li>
+        <li>A function giving a number on a set: <code>m(S)</code> for a set in the plane draws the graph of m over it; <code>f(S)</code> for a set in space colours it by f</li>
         <li><code>(f(t), g(t), h(t))</code> → curve · use <code>u, v</code> for a surface</li>
         <li>Any other letter becomes a slider</li>
       </ul>
@@ -1481,7 +1493,7 @@ function buildPlane2D(info, defs, color) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     const fill = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.32, depthWrite: false, shininess: 10, clippingPlanes: GEN.planes }));
-    fill.userData.pass = 1; grp.add(fill);
+    fill.userData.pass = 1; fill.userData.fill = true; grp.add(fill);
   }
   const rim = [];
   contour2D(m, -Lb, Lb, G, to3, rim);
@@ -1715,7 +1727,7 @@ function applyFunc(fname, info) {
   const nIn = U.params.length, nOut = U.out.t === 'vec' ? U.out.n : 1, d = info.dim2 ? 2 : 3;
   const sig = `${greek(fname)} : ℝ${SUP(nIn)} → ℝ${SUP(nOut)}`, what = info.refName ? greek(info.refName) : 'this set';
   const pts = info.coordNames ? `, with points (${info.coordNames.map(n => GREEK[n] || n).join(', ')})` : '';
-  if (nOut === 1) return err(`${sig} gives a single number, so it can't move points — make it give a point, like ${fname}(…) = (…, …, …).`);
+  if (info.paint) return err(`${greek(info.paint.name)} already turns ${what} into numbers (its colours), so ${greek(fname)} can't be applied after it.`);
   if (nIn !== d) return err(`${sig} takes ${nIn} input${nIn > 1 ? 's' : ''}, but ${what} is in ℝ${SUP(d)}${pts}.`);
   if (!info.mapped && ['cyl', 'sph', 'polar2'].includes(info.coordSys)) {
     const target = info.coordSys === 'polar2' ? 'cart2' : 'cart', names = info.coordNames.map(n => GREEK[n] || n).join(', ');
@@ -1723,14 +1735,30 @@ function applyFunc(fname, info) {
       fix: { target, coordSys: info.coordSys, coordNames: info.coordNames, litText: info.litText, srcName: info.srcName || null, refName: info.refName || null, setRow: info.setRow || null },
     });
   }
-  const ps = U.params;
+  const ps = U.params, f = greek(fname);
+  if (nOut === 1 && d === 3) { // a number at each point of a set in space: paint the set with it
+    info.paint = { name: fname, f: (s, P) => { const s2 = Object.create(s); for (let i = 0; i < 3; i++) s2[ps[i]] = P[i]; return numOut(U.fn(s2)); } };
+    info.free = [...new Set([...(info.free || []), ...U.free])];
+    info.reads = `${f} shown as colour on ${info.reads}`;
+    info.notes = (info.notes || []).concat([sig, `colour = the value of ${f}${info.kind === 'region' ? ' on the surface of the solid' : ''}`]);
+    if (info.form) info.form += `, coloured by ${f}`;
+    delete info.coordSys;
+    return info;
+  }
   const F = (s, P) => {
     const s2 = Object.create(s);
     for (let i = 0; i < nIn; i++) s2[ps[i]] = P[i];
     const o = U.fn(s2);
+    if (nOut === 1) return [P[0], P[1], numOut(o)]; // a number on a planar set: its graph over the set
     if (!isArr(o)) return [NaN, NaN, NaN];
     return nOut === 3 ? o : [o[0], o[1], d === 2 ? P[2] : 0]; // a flat result stays in the xy-plane
   };
+  if (nOut === 1) {
+    info.lifted = true;
+    info.reads = `graph of ${f} over ${info.reads}`;
+    info.notes = (info.notes || []).concat([sig, `height = the value of ${f}`]);
+    if (info.form) info.form = `graph of ${f} over a ${info.form}`;
+  }
   if (info.vec) { // curves, parametric surfaces and points map exactly
     if (!info.vec0) info.vec0 = info.vec;
     const prev = info.vec; info.vec = s => { const P = prev(s); return isArr(P) ? F(s, P) : P; };
@@ -1739,9 +1767,11 @@ function applyFunc(fname, info) {
   info.mapName = info.mapName ? `${greek(fname)}∘${greek(info.mapName)}` : greek(fname);
   info.dim2 = nOut === 2;
   info.free = [...new Set([...(info.free || []), ...U.free])];
-  info.reads = `${greek(fname)} applied to ${info.reads}`;
-  info.notes = (info.notes || []).filter(q => q !== 'drawn in Cartesian (x, y, z)').concat([sig, 'drawn in Cartesian (x, y, z)']);
-  if (info.form) info.form += `, mapped by ${greek(fname)}`;
+  if (nOut !== 1) {
+    info.reads = `${greek(fname)} applied to ${info.reads}`;
+    info.notes = (info.notes || []).filter(q => q !== 'drawn in Cartesian (x, y, z)').concat([sig, 'drawn in Cartesian (x, y, z)']);
+    if (info.form) info.form += `, mapped by ${greek(fname)}`;
+  }
   delete info.coordSys; // the image is a new set: no Convert buttons
   return info;
 }
@@ -1855,12 +1885,144 @@ const beforeColor = c => { const i = PALETTE.indexOf(c); return PALETTE[((i < 0 
 // Build a row's object; for a mapped set, optionally add the original set in its own colour.
 function buildRowObject(r, info, defs, build) {
   let o = applyFMaps(applyMap(applyRestrict(build(info, defs, r.color, r), info, defs), info, defs), info, defs);
+  if (info.lifted) liftLook(o, r.color);
+  if (info.paint) o = applyPaint(o, info, defs, r);
   if (info.mapped && r.showBoth) {
     const orig = info.vec0 ? Object.assign({}, info, { vec: info.vec0 }) : info;
     const g = applyRestrict(build(orig, defs, beforeColor(r.color), r), orig, defs);
     if (g) { const grp = new THREE.Group(); if (o) grp.add(o); grp.add(ghost(g)); o = grp; }
   }
   return o;
+}
+// A planar region lifted into the graph of f over it: give the flat see-through fill a surface's two passes.
+function liftLook(obj, color) {
+  const fills = [];
+  if (obj) obj.traverse(c => { if (c.userData.fill) fills.push(c); });
+  for (const c of fills) { c.parent.add(...twoPass(c.geometry, color)); c.parent.remove(c); c.material.dispose(); }
+}
+// Paint a set in space with a function's value at each point (f : ℝ³ → ℝ applied to the set), with
+// level lines at the legend's ticks so values read the same whatever the lighting. If the mesh can't
+// resolve f there (it blows up on the set, so neighbouring points disagree wildly) nothing is painted.
+function applyPaint(obj, info, defs, row) {
+  if (!obj) return obj;
+  const s = Object.assign({}, defs), f = P => info.paint.f(s, P), name = greek(info.paint.name), ink = css('--ink');
+  if (!obj.isGroup) { const g = new THREE.Group(); g.add(obj); obj = g; } // a point is a bare mesh: give its lines a parent
+  if (info.kind === 'point') { // one value: the point's own colour
+    const P = info.vec(defs), x = isArr(P) ? f(P) : NaN, rgb = Number.isFinite(x) ? ramp(row ? row.color : '#2f6fed', 0.6) : [0.6, 0.62, 0.66];
+    obj.traverse(c => { if (c.material) c.material.color.setRGB(...rgb); });
+    info.legend = Number.isFinite(x) ? { kind: 'levels', name: info.paint.name, items: [{ v: +x.toPrecision(6), color: rgbHex(rgb) }] } : null;
+    if (!Number.isFinite(x)) info.warn = `${name} isn't defined at this point.`;
+    return obj;
+  }
+  obj.updateMatrixWorld(true);
+  const parts = [], seen = new Set(), all = [], v = new THREE.Vector3();
+  obj.traverse(c => {
+    if (!c.isMesh || c.isInstancedMesh || c.isLineSegments2 || !c.geometry || seen.has(c.geometry)) return;
+    seen.add(c.geometry);
+    const pos = c.geometry.attributes.position, vals = new Float64Array(pos.count);
+    const tube = c.geometry.type === 'TubeGeometry' ? c.geometry.parameters : null, ring = new Map(); // a curve: f on its centre line
+    for (let i = 0; i < pos.count; i++) {
+      if (tube) { const k = Math.floor(i / (tube.radialSegments + 1)); if (!ring.has(k)) { const q = tube.path.getPointAt(k / tube.tubularSegments); ring.set(k, f([q.x, q.y, q.z])); } vals[i] = ring.get(k); }
+      else { v.fromBufferAttribute(pos, i).applyMatrix4(c.matrixWorld); vals[i] = f([v.x, v.y, v.z]); }
+      all.push(vals[i]);
+    }
+    parts.push({ c, vals, tube });
+  });
+  const finite = all.filter(x => Number.isFinite(x) && Math.abs(x) < 1e12);
+  const neutral = () => obj.traverse(c => { // lines in the row colour would read as a value
+    if (c.isLineSegments2) c.material.color.set(ink);
+    else if (c.isLineSegments) { c.material.color.set(ink); c.material.transparent = true; c.material.opacity = Math.min(c.material.opacity, 0.2); }
+  });
+  if (!all.length) return obj;
+  if (finite.length < 0.8 * all.length) { info.warn = `${name} isn't defined on most of this set (it divides by zero or blows up there), so it can't colour it.`; return obj; }
+  const [lo0, mid, hi0] = quantiles(finite, 0.02, 0.5, 0.98), spread = hi0 - lo0;
+  // roughness: how far apart neighbouring vertices sit in the ranking of all values (smooth: small, noise: ~0.3)
+  let rough = 0;
+  if (spread > 1e-9 * Math.max(1, Math.abs(mid))) {
+    const sorted = Float64Array.from(finite).sort(), rank = x => { let a = 0, b = sorted.length; while (a < b) { const m = (a + b) >> 1; if (sorted[m] < x) a = m + 1; else b = m; } return a / sorted.length; };
+    const diffs = [];
+    for (const { c, vals } of parts) {
+      const I = c.geometry.index ? c.geometry.index.array : null, nt = I ? I.length : vals.length, stride = Math.max(3, 3 * Math.floor(nt / 3 / 6000));
+      for (let t = 0; t + 2 < nt; t += stride) { const a = I ? I[t] : t, b = I ? I[t + 1] : t + 1; if (Number.isFinite(vals[a]) && Number.isFinite(vals[b])) diffs.push(Math.abs(rank(vals[a]) - rank(vals[b]))); }
+    }
+    [rough] = quantiles(diffs, 0.5);
+  }
+  // Rough values are mesh error, not f: either f is constant on the set (it changes much more across the
+  // surface, one grid cell either side, than along the drawn points) or it blows up there.
+  let constant = !(spread > 1e-9 * Math.max(1, Math.abs(mid))), acrossMid = 0;
+  if (!constant && rough > 0.12) {
+    const h = 2 * state.L / Q().iso, across = [];
+    for (const { c, vals, tube } of parts) {
+      const N = c.geometry.attributes.normal; if (tube || !N) continue;
+      const stride = Math.max(1, Math.floor(vals.length / 2000));
+      for (let i = 0; i < vals.length; i += stride) {
+        const A = c.geometry.attributes.position, p = [A.getX(i), A.getY(i), A.getZ(i)], n = [N.getX(i), N.getY(i), N.getZ(i)];
+        const d = f(p.map((x, k) => x + h * n[k])) - f(p.map((x, k) => x - h * n[k]));
+        if (Number.isFinite(d)) across.push(Math.abs(d));
+      }
+    }
+    [acrossMid] = quantiles(across, 0.5);
+    constant = spread < 0.25 * acrossMid;
+    if (!constant) { info.warn = `${name} blows up or jumps on this set (for example it divides by zero there), so its colours wouldn't mean anything.`; return obj; }
+  }
+  // colours span the values, or the middle 96 % of them when a few are far out (near a pole off the set)
+  let mn = Infinity, mx = -Infinity;
+  for (const x of finite) { if (x < mn) mn = x; if (x > mx) mx = x; }
+  const light = mx - mn <= 1.5 * spread;
+  // the colour domain stays put while a slider plays, unless the values leave it or shrink a lot
+  let lo = light ? mn : lo0, hi = light ? mx : hi0;
+  if (!(hi > lo)) { lo = lo0; hi = hi0; }
+  const prev = sticky(row, 'dom');
+  if (!constant && prev && lo >= prev[0] - 0.25 * (prev[1] - prev[0]) && hi <= prev[1] + 0.25 * (prev[1] - prev[0]) && hi - lo > 0.5 * (prev[1] - prev[0])) [lo, hi] = prev;
+  if (!constant) keep(row, 'dom', [lo, hi]);
+  const LUT = Array.from({ length: 65 }, (_, i) => ramp(row ? row.color : '#2f6fed', i / 64)), grey = [0.6, 0.62, 0.66];
+  const colorOf = x => (!Number.isFinite(x) ? grey : constant ? LUT[40] : LUT[Math.round(64 * Math.min(1, Math.max(0, (x - lo) / (hi - lo))))]);
+  const ticks = constant ? [] : niceLevels(finite.filter(x => x >= lo && x <= hi), 6, 9).levels.filter(c => c > lo && c < hi);
+  for (const { c, vals } of parts) {
+    const col = new Float32Array(vals.length * 3);
+    vals.forEach((x, i) => col.set(colorOf(x), i * 3));
+    c.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    // level lines of f on this piece, in ink
+    if (ticks.length) {
+      const P = c.geometry.attributes.position.array, I = c.geometry.index ? c.geometry.index.array : null, nt = I ? I.length : vals.length, segs = [];
+      for (let t = 0; t + 2 < nt; t += 3) {
+        const id = [0, 1, 2].map(k => (I ? I[t + k] : t + k));
+        for (const lv of ticks) {
+          const pts = [];
+          for (let e = 0; e < 3; e++) {
+            const a = id[e], b = id[(e + 1) % 3], fa = vals[a] - lv, fb = vals[b] - lv;
+            if (!Number.isFinite(fa) || !Number.isFinite(fb) || (fa < 0) === (fb < 0)) continue;
+            const u = fa / (fa - fb);
+            pts.push([0, 1, 2].map(k => P[a * 3 + k] + (P[b * 3 + k] - P[a * 3 + k]) * u));
+          }
+          if (pts.length === 2) segs.push(...pts[0], ...pts[1]);
+        }
+      }
+      if (segs.length) { const ln = fatLines(segs, ink, 1.2, GEN.planes); ln.material.transparent = true; ln.material.opacity = 0.55; ln.userData.pass = 2; c.parent.add(ln); }
+    }
+  }
+  obj.traverse(c => {
+    if (!c.isMesh || c.isLineSegments2 || !c.material || !c.geometry.attributes.color) return;
+    const m = c.material;
+    m.vertexColors = true; m.color.set(0xffffff);
+    if (m.isMeshPhongMaterial) { // the colour carries the value, so let lighting shade it less
+      m.specular.set(0x111111); m.shininess = 12;
+      m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n\tdiffuseColor.rgb *= 0.65;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += 0.35 * vColor;'); };
+      m.customProgramCacheKey = () => 'paint';
+    }
+    if (c.userData.pass === 0) m.opacity = 0.3; else if (c.userData.pass === 1) m.opacity = 0.9;
+    m.needsUpdate = true;
+  });
+  neutral();
+  if (constant) { // the drawn points sit a little off the set, so round to what that error allows (4, not 3.98771)
+    const q = acrossMid > 0 ? niceStep(0.05 * acrossMid) : 0, val = +((q ? Math.round(mid / q) * q : mid) + 0).toPrecision(6);
+    info.legend = { kind: 'levels', name: info.paint.name, items: [{ v: val, color: rgbHex(LUT[40]) }] };
+    info.note = `${name} ≈ ${fmtLevel(val)} all over this set`;
+  } else {
+    info.legend = { kind: 'ramp', name: info.paint.name, lo: +lo.toPrecision(3), hi: +hi.toPrecision(3), clampLo: mn < lo, clampHi: mx > hi, stops: [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => rgbHex(LUT[i * 8])) };
+    info.note = mn < lo || mx > hi ? `${name} runs from ${fmtLevel(+mn.toPrecision(3))} to ${fmtLevel(+mx.toPrecision(3))} here` : '';
+  }
+  return obj;
 }
 // Trim a built surface to where a set's inequalities hold (h ≤ 0), cutting triangles cleanly.
 function applyRestrict(obj, info, defs) {
@@ -1941,6 +2103,9 @@ const EXAMPLES = [
   { label: 'Trefoil knot', tex: String.raw`\left(\sin t+2\sin\left(2t\right),\cos t-2\cos\left(2t\right),-\sin\left(3t\right)\right)` },
   { label: 'Parametric torus (u, v)', tex: String.raw`\left(\left(3+\cos v\right)\cos u,\left(3+\cos v\right)\sin u,\sin v\right)`, ranges: { v: ['0', '2π'] } },
   { label: 'Point', tex: String.raw`\left(1,2,3\right)` },
+  { label: 'Vector field F(x, y) = (−y, x)', tex: String.raw`F\left(x,y\right)=\left(-y,x\right)` },
+  { label: 'Level surfaces of x² + y² − z²', tex: String.raw`Q\left(x,y,z\right)=x^2+y^2-z^2` },
+  { label: 'Polar coordinates as a map', tex: String.raw`P\left(r,\theta\right)=\left(r\cos\theta,r\sin\theta\right)` },
 ];
 const exSel = document.getElementById('examples');
 EXAMPLES.forEach((e, i) => { const o = document.createElement('option'); o.value = i; o.textContent = e.label; exSel.appendChild(o); });
@@ -2156,12 +2321,20 @@ function sampleGrid(M, lo, h, val) {
 function buildImplicit(info, defs, color) {
   const box = GEN.box, L = box.L, n = GEN.iso, M = n + 1, pad = GEN.fly ? 1 : 1.02, lo = box.c.map(c => c - L * pad), h = 2 * L * pad / n;
   const s = Object.assign({}, defs), set = scopeSetter(info, false);
-  const F = sampleGrid(M, lo, h, (x, y, z) => { set(s, x, y, z); return info.fn(s); });
-  const { positions, indices, normals } = march(F, M, lo, h, info.usesAz);
+  const val = (x, y, z) => { set(s, x, y, z); return info.fn(s); };
+  const F = sampleGrid(M, lo, h, val);
+  const { positions, indices, normals } = march(F, M, lo, h, { maxSpan: info.usesAz ? Math.PI : Infinity, at: val });
   return makeSurface(new Float32Array(positions), indices, null, color, normals);
 }
-// Marching tetrahedra over a sampled grid; triangles face toward positive F.
-function march(F, M, lo, h, azFilter) {
+// Is the crossing found between values fa and fb (signs differ) real? v is the function at the
+// interpolated point: next to a real zero it is smaller than at both ends, at a pole (a sign flip
+// through ∞, like 1/x) it is larger, so a pole is never drawn as a surface or a curve.
+const realCrossing = (v, fa, fb) => !(Math.abs(v) > Math.min(Math.abs(fa), Math.abs(fb)) + 1e-6 * Math.abs(fa - fb));
+// Marching tetrahedra over a sampled grid for the level F = opt.iso; triangles face toward larger F.
+// opt.maxSpan skips tetrahedra whose values spread wider (angle branch cuts); opt.at(x, y, z) is the
+// function itself, used to drop pole crossings (see realCrossing).
+function march(F, M, lo, h, opt = {}) {
+  const maxSpan = opt.maxSpan ?? Infinity, iso = opt.iso || 0, at = opt.at || null;
   const n = M - 1, TOT = M * M * M;
   const off = CORNER.map(([a, b, c]) => a + M * (b + M * c));
   const positions = [], indices = [], normals = [], emap = new Map();
@@ -2174,13 +2347,16 @@ function march(F, M, lo, h, azFilter) {
   const vert = (ga, gb) => {
     const key = ga < gb ? ga * TOT + gb : gb * TOT + ga;
     let id = emap.get(key); if (id !== undefined) return id;
-    const fa = F[ga], fb = F[gb], t = fa / (fa - fb), pa = gp(ga), pb = gp(gb);
-    positions.push(pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t, pa[2] + (pb[2] - pa[2]) * t);
+    const fa = F[ga] - iso, fb = F[gb] - iso, t = fa / (fa - fb), pa = gp(ga), pb = gp(gb);
+    const px = pa[0] + (pb[0] - pa[0]) * t, py = pa[1] + (pb[1] - pa[1]) * t, pz = pa[2] + (pb[2] - pa[2]) * t;
+    if (at && !realCrossing(at(px, py, pz) - iso, fa, fb)) { emap.set(key, -1); return -1; }
+    positions.push(px, py, pz);
     const na = grad(ga), nb = grad(gb), nv = [0, 1, 2].map(q => na[q] + (nb[q] - na[q]) * t), len = Math.hypot(...nv);
     if (Number.isFinite(len) && len > 1e-12) normals.push(nv[0] / len, nv[1] / len, nv[2] / len); else normals.push(0, 0, 0);
     id = positions.length / 3 - 1; emap.set(key, id); return id;
   };
   const tri = (a, b, c, d) => {
+    if (a < 0 || b < 0 || c < 0) return; // touches a pole crossing
     const P = positions;
     const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
     const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
@@ -2191,12 +2367,12 @@ function march(F, M, lo, h, azFilter) {
   for (let k = 0; k < n; k++) for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const base = i + M * (j + M * k);
     let neg = 0, bad = false;
-    for (let c = 0; c < 8; c++) { const val = F[base + off[c]]; if (!Number.isFinite(val)) { bad = true; break; } if (val < 0) neg++; }
+    for (let c = 0; c < 8; c++) { const val = F[base + off[c]] - iso; if (!Number.isFinite(val)) { bad = true; break; } if (val < 0) neg++; }
     if (bad || neg === 0 || neg === 8) continue;
     for (const tet of TETS) {
       let lo2 = Infinity, hi2 = -Infinity;
-      for (let q = 0; q < 4; q++) { g[q] = base + off[tet[q]]; f[q] = F[g[q]]; lo2 = Math.min(lo2, f[q]); hi2 = Math.max(hi2, f[q]); }
-      if (azFilter && hi2 - lo2 > Math.PI) continue; // angle branch cut, not a real surface
+      for (let q = 0; q < 4; q++) { g[q] = base + off[tet[q]]; f[q] = F[g[q]] - iso; lo2 = Math.min(lo2, f[q]); hi2 = Math.max(hi2, f[q]); }
+      if (hi2 - lo2 > maxSpan) continue; // angle branch cut, not a real surface
       const ins = [], outs = [];
       for (let q = 0; q < 4; q++) (f[q] < 0 ? ins : outs).push(q);
       if (!ins.length || !outs.length) continue;
@@ -2218,27 +2394,35 @@ function march(F, M, lo, h, azFilter) {
 }
 
 // 2D marching squares on an m×m grid over [a0,a1]²; pushes 3D segment endpoints to out.
-function contour2D(m, a0, a1, f, to3, out, maxJump = Infinity) {
-  const N = m + 1, st = (a1 - a0) / m, V = new Float64Array(N * N);
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) V[i * N + j] = f(a0 + i * st, a0 + j * st);
+// opt.V: the values already sampled on that grid; opt.iso: the level to trace (default 0);
+// opt.at(u, v): the function itself, so a pole is dropped instead of traced (see realCrossing).
+function contour2D(m, a0, a1, f, to3, out, maxJump = Infinity, opt = {}) {
+  const N = m + 1, st = (a1 - a0) / m, iso = opt.iso || 0, at = opt.at || null;
+  let V = opt.V;
+  if (!V) { V = new Float64Array(N * N); for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) V[i * N + j] = f(a0 + i * st, a0 + j * st); }
   const cu = [0, 1, 1, 0], cv = [0, 0, 1, 1], pts = [];
   for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
-    const c = [V[i * N + j], V[(i + 1) * N + j], V[(i + 1) * N + j + 1], V[i * N + j + 1]];
+    const c = [V[i * N + j] - iso, V[(i + 1) * N + j] - iso, V[(i + 1) * N + j + 1] - iso, V[i * N + j + 1] - iso];
     if (c.some(Number.isNaN)) continue;
     pts.length = 0;
+    let pole = false;
     for (let e = 0; e < 4; e++) {
       const a = e, b = (e + 1) % 4;
       if ((c[a] < 0) === (c[b] < 0) || Math.abs(c[a] - c[b]) > maxJump) continue;
-      const t = c[a] / (c[a] - c[b]);
-      pts.push(to3(a0 + (i + cu[a] + (cu[b] - cu[a]) * t) * st, a0 + (j + cv[a] + (cv[b] - cv[a]) * t) * st));
+      const t = c[a] / (c[a] - c[b]), u = a0 + (i + cu[a] + (cu[b] - cu[a]) * t) * st, v = a0 + (j + cv[a] + (cv[b] - cv[a]) * t) * st;
+      if (at && !realCrossing(at(u, v) - iso, c[a], c[b])) { pole = true; break; }
+      pts.push(to3(u, v));
     }
+    if (pole) continue;
     for (let p = 0; p + 1 < pts.length; p += 2) out.push(...pts[p], ...pts[p + 1]);
   }
 }
 const lineMats = new Set();
-function fatLines(arr, color, width) {
+// planes: clip to the graph box (lines that can poke out of it, like arrows or mapped grids, need this)
+function fatLines(arr, color, width, planes) {
   const geo = new THREE.LineSegmentsGeometry(); geo.setPositions(arr);
   const mat = new THREE.LineMaterial({ color, linewidth: width });
+  if (planes && planes.length) mat.clippingPlanes = planes;
   mat.resolution.set(view.clientWidth || 1, view.clientHeight || 1);
   mat.fog = true;
   lineMats.add(mat);
@@ -2272,7 +2456,7 @@ function buildRegion(info, defs, color) {
   // Each condition's boundary surface, trimmed to where every other condition (and the box) holds.
   for (let k = 0; k < K; k++) {
     const F = sampleGrid(M, lo, h, (x, y, z) => { set(s, x, y, z); return gs[k](s); });
-    const { positions, indices, normals } = march(F, M, lo, h, false);
+    const { positions, indices, normals } = march(F, M, lo, h);
     if (!indices.length) continue;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -2340,9 +2524,13 @@ function buildRegion(info, defs, color) {
   return grp;
 }
 
-function paramRange(row, p, defs) {
-  const dflt = { t: [0, 2 * Math.PI], u: [0, 2 * Math.PI], v: [0, Math.PI] }[p];
-  const r = (row.info && row.info.setRanges && row.info.setRanges[p]) || row.ranges[p] || [];
+const PARAM_RANGE = { t: [0, 2 * Math.PI], u: [0, 2 * Math.PI], v: [0, Math.PI] };
+// A parameter's range: a fixed domain a builder asks for (a graph spans the graph box), else the range
+// boxes (a set's own ranges, or the row's boxes: info.ranges for a function's inputs), else a default.
+function paramRange(row, p, defs, info = row.info) {
+  if (info && info.domain && info.domain[p]) return info.domain[p]();
+  const dflt = (info && info.rangeDefault && info.rangeDefault(p)) || PARAM_RANGE[p] || [-state.L, state.L];
+  const r = (info && info.setRanges && info.setRanges[p]) || ((info && info.ranges) || row.ranges)[p] || [];
   return [0, 1].map(i => { const v = evalConst(r[i], defs); return Number.isFinite(v) ? v : dflt[i]; });
 }
 function evalConst(str, defs) {
@@ -2350,7 +2538,7 @@ function evalConst(str, defs) {
   try { return cl(parse(rewrite(String(str), Object.keys(defs)).s))(defs); } catch (e) { return NaN; }
 }
 function buildCurve(info, defs, color, row) {
-  const L = state.L, p = info.params[0], [t0, t1] = paramRange(row, p, defs), N = Q().curve;
+  const L = state.L, p = info.params[0], [t0, t1] = paramRange(row, p, defs, info), N = Q().curve;
   const s = Object.assign({}, defs), segs = []; let cur = [], prev = null;
   for (let i = 0; i <= N; i++) {
     s[p] = t0 + (t1 - t0) * i / N;
@@ -2372,7 +2560,7 @@ function buildCurve(info, defs, color, row) {
 }
 function buildPSurface(info, defs, color, row) {
   const L = state.L, N = Q().ps, M = N + 1, [pu, pv] = info.params;
-  const [u0, u1] = paramRange(row, pu, defs), [v0, v1] = paramRange(row, pv, defs);
+  const [u0, u1] = paramRange(row, pu, defs, info), [v0, v1] = paramRange(row, pv, defs, info);
   const s = Object.assign({}, defs), pos = new Float32Array(M * M * 3), ok = new Uint8Array(M * M);
   for (let i = 0; i < M; i++) { s[pu] = u0 + (u1 - u0) * i / N;
     for (let j = 0; j < M; j++) { s[pv] = v0 + (v1 - v0) * j / N;
@@ -2444,6 +2632,289 @@ function buildSeq(info, defs, color, row) {
   pts.forEach(([P, first], i) => { const k = first ? 1.6 : 1; mesh.setMatrixAt(i, m.makeScale(k, k, k).setPosition(...P)); });
   mesh.frustumCulled = false; // the dots spread far from the mesh's own origin
   grp.add(mesh);
+  return grp;
+}
+
+// ───────────────────────── drawing functions ℝⁿ → ℝᵐ ─────────────────────────
+// A function row draws itself in the view its (n, m) allows; the first view listed is the default.
+const FUNC_VIEWS = { '1,1': ['graph'], '1,2': ['curve', 'graph'], '1,3': ['curve'], '2,1': ['graph', 'levels'], '2,2': ['arrows', 'grid'], '2,3': ['surface'], '3,1': ['levels'], '3,2': ['fibers', 'arrows'], '3,3': ['arrows', 'grid'] };
+const viewLabel = (v, n, m) => ({ graph: 'Graph', curve: 'Curve it traces', surface: 'Surface it traces', levels: n === 2 ? 'Level curves' : 'Level surfaces', arrows: m === 2 && n === 3 ? 'Arrows (f₁, f₂, 0)' : 'Arrows (vector field)', grid: 'Grid image (map)', fibers: 'Fibers f = (c₁, c₂)' })[v];
+const viewNote = (v, f, n) => ({
+  graph: `graph of ${f}`, curve: `the curve ${f} traces`, surface: `the surface ${f} traces`,
+  levels: `level ${n === 2 ? 'curves' : 'surfaces'} ${f} = c`, arrows: `an arrow ${f}(p) at each point p`,
+  grid: `where ${f} sends a grid of lines`, fibers: `curves where ${f} = (c₁, c₂)`,
+})[v];
+// n = m: a field when the inputs are the coordinates themselves, F(x, y) = (−y, x); otherwise a map, f(a, b) = …
+function funcViews(U) {
+  const n = U.params.length, m = U.out.t === 'vec' ? U.out.n : 1, views = FUNC_VIEWS[`${n},${m}`];
+  if (!views) return [];
+  const field = n === m && U.params.join() === ['x', 'y', 'z'].slice(0, n).join();
+  return n === m && !field ? [...views].reverse() : views;
+}
+const TRIG_FNS = ['sin', 'cos', 'tan', 'sec', 'csc', 'cot'];
+// Default range of an input that has range boxes: a full turn if it is an angle inside a trig function, else the box.
+function funcRangeDefault(U, p) {
+  const inTrig = U.node.filter(q => q.type === 'FunctionNode' && TRIG_FNS.includes(q.fn.name) && q.args.some(a => symbolsOf(a).has(p))).length > 0;
+  if (inTrig) return p === names(state.conv).POL ? [0, Math.PI] : [0, 2 * Math.PI];
+  if (p === 'r' || p === 'rho') return [0, state.L];
+  return [-state.L, state.L];
+}
+// What the builders get for a function row's view.
+function funcDraw(U, r, view) {
+  const ps = U.params, n = ps.length, m = U.out.t === 'vec' ? U.out.n : 1, p = ps[0];
+  const call = (s, P) => { for (let i = 0; i < n; i++) s[ps[i]] = P[i]; return U.fn(s); };
+  const vec3 = o => (isArr(o) ? [o[0], o[1], m === 3 ? o[2] : 0] : [NaN, NaN, NaN]);
+  const base = { U, n, m, view, call, params: ps, ranges: r.franges, rangeDefault: q => funcRangeDefault(U, q) };
+  switch (view) {
+    case 'graph':
+      if (n === 1) return { ...base, kind: 'curve', domain: { [p]: () => [-state.L, state.L] }, vec: s => { const o = U.fn(s); return m === 1 ? [s[p], typeof o === 'number' ? o : NaN, 0] : isArr(o) ? [s[p], o[0], o[1]] : [NaN, NaN, NaN]; } };
+      return { ...base, kind: 'explicit', sys: 'cart', map: { [ps[0]]: 'X', [ps[1]]: 'Y' }, dep: 'Z', params: ['X', 'Y'], fn: s => { const o = U.fn(s); return typeof o === 'number' ? o : NaN; } };
+    case 'curve': return { ...base, kind: 'curve', vec: s => vec3(U.fn(s)) };
+    case 'surface': return { ...base, kind: 'psurface', vec: s => vec3(U.fn(s)) };
+    case 'levels': return { ...base, kind: n === 3 ? 'flevels3' : 'flevels2' };
+    case 'arrows': return { ...base, kind: 'farrows' };
+    case 'grid': return { ...base, kind: 'fgrid' };
+    case 'fibers': return { ...base, kind: 'ffibers' };
+  }
+  return null;
+}
+const FUNC_KINDS = ['flevels2', 'flevels3', 'farrows', 'fgrid', 'ffibers'];
+
+// One-hue ramps (sequential: light→dark on a light canvas, flipped on a dark one) in OKLab, so equal
+// steps look equal; the row's hue and chroma are kept, chroma lowered only where sRGB can't reach.
+const toLin = c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const toGam = c => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+function toOklab(r, g, b) {
+  r = toLin(r); g = toLin(g); b = toLin(b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+function oklabToLin(L, a, b) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+}
+const RAMP_L = { light: [0.82, 0.38], dark: [0.4, 0.86] }; // OKLab lightness at the low and the high end
+function ramp(hex, t) {
+  const [L0, L1] = RAMP_L[state.dark ? 'dark' : 'light'], L = L0 + (L1 - L0) * Math.min(1, Math.max(0, t));
+  const c = new THREE.Color(hex), [, a, b] = toOklab(c.r, c.g, c.b), C = Math.hypot(a, b), h = Math.atan2(b, a);
+  const fits = k => oklabToLin(L, k * Math.cos(h), k * Math.sin(h)).every(v => v >= -1e-4 && v <= 1 + 1e-4);
+  let lo = 0, hi = C;
+  if (fits(hi)) lo = hi; else for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+  return oklabToLin(L, lo * Math.cos(h), lo * Math.sin(h)).map(v => toGam(Math.min(1, Math.max(0, v))));
+}
+const rgbHex = c => '#' + c.map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+const rampHex = (hex, t) => rgbHex(ramp(hex, t));
+
+// Quantiles of the finite values (a strided sample of at most 20k keeps big grids fast).
+function quantiles(vals, ...qs) {
+  const stride = Math.max(1, Math.floor(vals.length / 20000)), a = [];
+  for (let i = 0; i < vals.length; i += stride) if (Number.isFinite(vals[i])) a.push(vals[i]);
+  a.sort((x, y) => x - y);
+  return qs.map(q => (a.length ? a[Math.min(a.length - 1, Math.max(0, Math.round(q * (a.length - 1))))] : NaN));
+}
+// Round, evenly spaced levels across the bulk (5–95 %) of the values: about `target` of them, never more than `max`.
+// A level step kept from before (prevStep) is reused while it still fits, so levels don't jump while a slider plays.
+function niceLevels(vals, target, max, prevStep) {
+  const [lo, hi] = quantiles(vals, 0.05, 0.95);
+  if (!Number.isFinite(lo)) return { levels: [], step: 0 };
+  if (!(hi - lo > 1e-9 * Math.max(1, Math.abs(lo)))) return { levels: [+lo.toPrecision(6)], step: 0 };
+  const count = st => Math.floor(hi / st + 1e-9) - Math.ceil(lo / st - 1e-9) + 1;
+  let step = prevStep && count(prevStep) >= Math.max(2, target / 2) && count(prevStep) <= max ? prevStep : 0;
+  if (!step) {
+    const p = Math.pow(10, Math.floor(Math.log10((hi - lo) / target)));
+    for (const k of [0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20]) if (count(k * p) <= max && (!step || Math.abs(count(k * p) - target) < Math.abs(count(step) - target))) step = k * p;
+  }
+  const levels = [];
+  for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi + step * 1e-9 && levels.length < max; k++) levels.push(+(k * step).toPrecision(12));
+  return { levels, step };
+}
+// Levels the person typed (comma-separated numbers or expressions in sliders), or null for automatic.
+function typedLevels(text, defs) {
+  if (!text || !String(text).trim() || /^\s*auto\s*$/i.test(text)) return null;
+  return splitTop(String(text), [',', ';']).map(q => evalConst(q, defs)).filter(Number.isFinite);
+}
+// Values a build keeps between rebuilds of the same line (the line's text, view and box unchanged).
+function sticky(row, name) { const v = row && row.viz && row.viz.sig === row.vizSig ? row.viz : null; return v ? v[name] : undefined; }
+function keep(row, name, value) { if (!row) return value; if (!row.viz || row.viz.sig !== row.vizSig) row.viz = { sig: row.vizSig }; row.viz[name] = value; return value; }
+const fmtLevel = v => (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toPrecision(3) : String(+v.toPrecision(6))).replace('-', '−');
+const numOut = o => (typeof o === 'number' ? o : NaN);
+// Translucent surfaces that don't write depth, so nested shells all stay visible.
+function shellPass(geo, color, opacity) {
+  const [back, front] = twoPass(geo, color, opacity);
+  back.material.depthWrite = front.material.depthWrite = false;
+  return [back, front];
+}
+
+// Level surfaces f = c (ℝ³ → ℝ): every level from one sampling of f, poles dropped, rings on z-slices
+// in the level's colour so each level can be matched to the legend whatever the lighting.
+function buildLevelSurfaces(info, defs, color, row) {
+  const box = GEN.box, L = box.L, n = Math.max(16, Math.round(GEN.iso * 0.75)), M = n + 1, pad = 1.02;
+  const lo = box.c.map(c => c - L * pad), h = 2 * L * pad / n, s = Object.assign({}, defs);
+  const val = (x, y, z) => numOut(info.call(s, [x, y, z]));
+  const F = sampleGrid(M, lo, h, val);
+  const inBall = [];
+  for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++)
+    if (Math.hypot(lo[0] + i * h - box.c[0], lo[1] + j * h - box.c[1], lo[2] + k * h - box.c[2]) <= L) inBall.push(F[i + M * (j + M * k)]);
+  let levels = typedLevels(row && row.flevels, defs);
+  if (!levels) { const r = niceLevels(inBall, 4, 5, sticky(row, 'step')); keep(row, 'step', r.step); levels = r.levels; }
+  const grp = new THREE.Group(), legend = [], K = levels.length, op = K <= 3 ? 0.35 : 0.25, shells = [];
+  levels.forEach((c, li) => {
+    const rgb = ramp(color, K > 1 ? li / (K - 1) : 0.6), hex = rgbHex(rgb);
+    legend.push({ v: c, color: hex });
+    const { positions, indices, normals } = march(F, M, lo, h, { iso: c, at: val });
+    if (!indices.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices); setNormals(geo, normals); geo.computeBoundingSphere();
+    shells.push([geo.boundingSphere.radius, ...shellPass(geo, hex, op)]);
+    // rings: this level on every 4th z-plane of the samples
+    const rings = [], V = new Float64Array(M * M);
+    for (let k = 2; k < M; k += 4) {
+      const z = lo[2] + k * h;
+      for (let i = 0; i < M; i++) for (let j = 0; j < M; j++) V[i * M + j] = F[i + M * (j + M * k)];
+      contour2D(n, lo[0], lo[0] + n * h, null, (u, v) => [u, v + lo[1] - lo[0], z], rings, Infinity, { V, iso: c, at: (u, v) => val(u, v + lo[1] - lo[0], z) });
+    }
+    if (rings.length) { const ln = fatLines(rings, hex, 1.4, GEN.planes); ln.userData.pass = 2; grp.add(ln); }
+  });
+  // painter's order inside the group: far sides of the biggest shells first, near sides of the smallest first
+  const byR = [...shells].sort((a, b) => b[0] - a[0]), k = Math.max(1, shells.length);
+  byR.forEach(([, back, front], i) => { back.userData.sub = 0.9 * i / k; front.userData.sub = 0.9 * (k - 1 - i) / k; grp.add(back, front); });
+  info.legend = { kind: 'levels', name: info.U.name, items: legend };
+  if (!shells.length) info.note = 'none of these levels is reached inside the box';
+  return grp;
+}
+// Level curves f = c (ℝ² → ℝ) in the xy-plane.
+function buildLevelCurves(info, defs, color, row) {
+  const L = state.L, m = Math.max(40, Math.round(Q().grid * 1.4)), Lb = L * 0.999, z0 = L * 0.002, N = m + 1, st = 2 * Lb / m;
+  const s = Object.assign({}, defs), val = (x, y) => numOut(info.call(s, [x, y]));
+  const V = new Float64Array(N * N), inDisk = [];
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const x = -Lb + i * st, y = -Lb + j * st, v = val(x, y);
+    V[i * N + j] = Number.isFinite(v) ? v : NaN;
+    if (Math.hypot(x, y) <= L) inDisk.push(v);
+  }
+  let levels = typedLevels(row && row.flevels, defs);
+  if (!levels) { const r = niceLevels(inDisk, 10, 15, sticky(row, 'step')); keep(row, 'step', r.step); levels = r.levels; }
+  const grp = new THREE.Group(), legend = [], K = levels.length;
+  levels.forEach((c, li) => {
+    const hex = rampHex(color, K > 1 ? li / (K - 1) : 0.6), segs = [];
+    legend.push({ v: c, color: hex });
+    contour2D(m, -Lb, Lb, null, (x, y) => [x, y, z0], segs, Infinity, { V, iso: c, at: val });
+    if (segs.length) grp.add(fatLines(segs, hex, c === 0 ? 2.6 : 1.6, GEN.planes));
+  });
+  info.legend = { kind: 'levels', name: info.U.name, items: legend };
+  if (!grp.children.length) info.note = 'none of these levels is reached inside the box';
+  return grp;
+}
+// A round scale factor for arrows (1, 2 or 5 × 10ᵏ), rounded down so arrows never start longer than planned.
+function niceFactor(x) {
+  const p = Math.pow(10, Math.floor(Math.log10(x))), f = x / p;
+  return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * p;
+}
+const UP = new THREE.Vector3(0, 1, 0);
+// Vector field: an arrow f(p), centred on p, at each cell centre of a fixed grid (more arrows only clutter).
+function buildArrows(info, defs, color, row) {
+  const L = state.L, n = info.n, m = info.m, s = Object.assign({}, defs);
+  const k = n === 2 ? 14 : m === 2 ? 8 : 6, kz = n === 2 ? 1 : m === 2 ? 4 : 6, sp = 2 * L / k, spz = 2 * L / kz, z0 = L * 0.002;
+  const cell = n === 2 ? sp : Math.min(sp, spz), P = [], V = [];
+  for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) for (let l = 0; l < kz; l++) {
+    const p = [-L + (i + 0.5) * sp, -L + (j + 0.5) * sp, n === 2 ? z0 : -L + (l + 0.5) * spz], o = info.call(s, p.slice(0, n));
+    const v = isArr(o) ? [o[0], o[1], m === 3 ? o[2] : 0] : [NaN, NaN, NaN];
+    if (v.every(Number.isFinite)) { P.push(p); V.push(v); }
+  }
+  const lens = V.map(v => Math.hypot(...v)), [ref] = quantiles(lens.filter(x => x > 0), 0.85);
+  const grp = new THREE.Group();
+  if (!(ref > 0)) { info.note = lens.length ? 'f is zero everywhere in the box' : ''; return grp; }
+  // typical arrows fill 0.6 of a cell, leaving room to grow: the scale stays put while a slider plays, so
+  // arrows visibly grow and shrink, until they'd hit the cap (or shrink below half) and it's chosen afresh
+  const auto = 0.6 * cell / ref, prev = sticky(row, 'scale'), scale = keep(row, 'scale', prev && auto / prev > 0.62 && auto / prev < 2 ? prev : niceFactor(auto));
+  const shafts = [], heads = [], dots = [], cap = 0.95 * cell, mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), dir = new THREE.Vector3();
+  let clamped = 0;
+  for (let i = 0; i < P.length; i++) {
+    let len = lens[i] * scale;
+    if (len < 0.1 * cell) { dots.push(P[i]); continue; }
+    if (len > cap) { len = cap; clamped++; }
+    dir.set(...V[i]).normalize(); q.setFromUnitVectors(UP, dir);
+    const hl = Math.min(0.35 * len, 0.28 * cell), sl = len - hl, c = new THREE.Vector3(...P[i]);
+    const tail = c.clone().addScaledVector(dir, -len / 2);
+    shafts.push(mtx.clone().compose(tail.clone().addScaledVector(dir, sl / 2), q, new THREE.Vector3(0.045 * cell, sl, 0.045 * cell)));
+    heads.push(mtx.clone().compose(tail.clone().addScaledVector(dir, sl + hl / 2), q, new THREE.Vector3(0.38 * hl, hl, 0.38 * hl)));
+  }
+  const mat = new THREE.MeshPhongMaterial({ color, shininess: 30, clippingPlanes: GEN.planes });
+  const inst = (geo, list) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, mat, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.frustumCulled = false; grp.add(im); };
+  inst(new THREE.CylinderGeometry(1, 1, 1, 8, 1, false), shafts);
+  inst(new THREE.ConeGeometry(1, 1, 12), heads);
+  inst(new THREE.SphereGeometry(1, 10, 8), dots.map(p => new THREE.Matrix4().makeScale(0.06 * cell, 0.06 * cell, 0.06 * cell).setPosition(...p)));
+  info.note = (scale === 1 ? 'arrows at true length' : `arrows at ${fmtLevel(scale)}× true length`) + (clamped ? ` · ${clamped} long ones shortened` : '') + (dots.length ? ' · dots where f is about 0' : '');
+  return grp;
+}
+// Where a map sends a grid of lines in its domain (the range boxes): each family of lines in its own shade.
+function buildGridImage(info, defs, color, row) {
+  const L = state.L, n = info.n, s = Object.assign({}, defs), z0 = L * 0.002;
+  const R = info.params.map(p => paramRange(row, p, defs, info));
+  const lines = n === 2 ? 11 : 5, S = n === 2 ? 200 : 96, grp = new THREE.Group(), legend = [];
+  const at = (a, k) => R[a][0] + (R[a][1] - R[a][0]) * k / (lines - 1);
+  for (let a = 0; a < n; a++) { // lines along input a; the other inputs held at grid values
+    const segs = [], others = [0, 1, 2].slice(0, n).filter(b => b !== a);
+    const combos = n === 2 ? Array.from({ length: lines }, (_, k) => [k]) : Array.from({ length: lines * lines }, (_, k) => [k % lines, Math.floor(k / lines)]);
+    for (const combo of combos) {
+      let prev = null;
+      for (let t = 0; t <= S; t++) {
+        const P = [0, 0, 0];
+        P[a] = R[a][0] + (R[a][1] - R[a][0]) * t / S;
+        others.forEach((b, i) => { P[b] = at(b, combo[i]); });
+        const o = info.call(s, P.slice(0, n)), q = isArr(o) ? [o[0], o[1], n === 3 ? o[2] : z0] : null;
+        if (!q || !q.every(v => Number.isFinite(v) && Math.abs(v) < 1e4)) { prev = null; continue; }
+        if (prev && Math.hypot(q[0] - prev[0], q[1] - prev[1], q[2] - prev[2]) < L * 0.6) segs.push(...prev, ...q);
+        prev = q;
+      }
+    }
+    const hex = rampHex(color, n === 2 ? (a ? 0.25 : 0.85) : [0.9, 0.55, 0.2][a]);
+    legend.push({ v: `${greek(info.params[a])} varies`, color: hex });
+    if (segs.length) grp.add(fatLines(segs, hex, n === 2 ? 1.5 : 1.2, GEN.planes));
+  }
+  info.legend = { kind: 'levels', name: '', items: legend };
+  return grp;
+}
+// Fibers of f : ℝ³ → ℝ²: the curves f = (c₁, c₂), cut out of each level surface f₁ = c₁ by the levels of f₂.
+function buildFibers(info, defs, color, row) {
+  const box = GEN.box, L = box.L, n = Math.max(16, Math.round(GEN.iso * 0.75)), M = n + 1, pad = 1.02;
+  const lo = box.c.map(c => c - L * pad), h = 2 * L * pad / n, s = Object.assign({}, defs);
+  const out = (x, y, z) => { const o = info.call(s, [x, y, z]); return isArr(o) ? o : [NaN, NaN]; };
+  const F1 = sampleGrid(M, lo, h, (x, y, z) => out(x, y, z)[0]), F2 = sampleGrid(M, lo, h, (x, y, z) => out(x, y, z)[1]);
+  const ball = F => { const a = []; for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) if (Math.hypot(lo[0] + i * h - box.c[0], lo[1] + j * h - box.c[1], lo[2] + k * h - box.c[2]) <= L) a.push(F[i + M * (j + M * k)]); return a; };
+  const r1 = niceLevels(ball(F1), 3, 4, sticky(row, 'step1')), r2 = niceLevels(ball(F2), 4, 5, sticky(row, 'step2'));
+  keep(row, 'step1', r1.step); keep(row, 'step2', r2.step);
+  const K = r2.levels.length, segs = r2.levels.map(() => []);
+  for (const c1 of r1.levels) {
+    const { positions, indices } = march(F1, M, lo, h, { iso: c1, at: (x, y, z) => out(x, y, z)[0] });
+    const g = new Float64Array(positions.length / 3);
+    for (let i = 0; i < g.length; i++) g[i] = out(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2])[1];
+    const vp = i => [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]];
+    r2.levels.forEach((c2, li) => {
+      for (let t = 0; t < indices.length; t += 3) {
+        const pts = [];
+        for (let e = 0; e < 3; e++) {
+          const a = indices[t + e], b = indices[t + (e + 1) % 3], ga = g[a] - c2, gb = g[b] - c2;
+          if (!Number.isFinite(ga) || !Number.isFinite(gb) || (ga < 0) === (gb < 0)) continue;
+          const u = ga / (ga - gb), pa = vp(a), pb = vp(b);
+          pts.push(pa.map((x, k) => x + (pb[k] - x) * u));
+        }
+        if (pts.length === 2) segs[li].push(...pts[0], ...pts[1]);
+      }
+    });
+  }
+  const grp = new THREE.Group(), legend = [];
+  r2.levels.forEach((c2, li) => {
+    const hex = rampHex(color, K > 1 ? li / (K - 1) : 0.6);
+    legend.push({ v: c2, color: hex });
+    if (segs[li].length) grp.add(fatLines(segs[li], hex, 2, GEN.planes));
+  });
+  const f = greek(info.U.name);
+  info.legend = { kind: 'levels', name: `${f}₂`, items: legend };
+  info.note = r1.levels.length ? `${f}₁ = ${r1.levels.map(fmtLevel).join(', ')}` : '';
   return grp;
 }
 
@@ -2546,6 +3017,14 @@ function isEquationLike(m, userNames) {
   try { return [...symbolsOf(parse(rewrite(m[3], new Set([...userNames, ...params])).s))].some(n => COORDS.includes(n) && !params.includes(n)); }
   catch (e) { return false; }
 }
+// f(x, y, z) = 1: coordinates in, a value with no coordinates out. Next to a real definition of f
+// this is the equation f(x, y, z) = 1 (a level set), not a constant function.
+function isLevelEquation(m, userNames) {
+  const params = fdefParams(m);
+  if (!params.every(p => COORDS.includes(p))) return false;
+  try { return ![...symbolsOf(parse(rewrite(m[3], userNames).s))].some(n => COORDS.includes(n)); }
+  catch (e) { return false; }
+}
 // f(a, b, c) = (3a, 2b, 4c)
 function analyzeFuncDef(row, m, userNames) {
   const name = m[1], U = USERFN.get(name), body = m[3].trim();
@@ -2568,8 +3047,16 @@ function funcRowInfo(r) {
   if (U.err) return err(U.err);
   const nIn = U.params.length, nOut = U.out.t === 'vec' ? U.out.n : 1, ps = U.params.map(p => GREEK[p] || p).join(', ');
   const kind = nIn === 1 && nOut === 1 ? 'numbers in, numbers out' : nOut === 1 ? 'Cartesian point in, number out' : nIn === 1 ? 'number in, Cartesian point out' : 'Cartesian points in and out';
+  // how it's drawn: the view picked under it, or the first one its (n, m) allows
+  const views = funcViews(U), view = views.includes(r.fview) ? r.fview : views[0] || null;
+  if (!r.franges) r.franges = {};
+  const notes = [`${greek(r.fdef.name)} : ℝ${SUP(nIn)} → ℝ${SUP(nOut)}`, kind];
+  if (view) notes.push(viewNote(view, greek(r.fdef.name), nIn));
+  else notes.push(nIn > 3 ? "can't be drawn: it takes more than 3 inputs" : "can't be drawn");
   return { kind: 'func', name: r.fdef.name, nIn, nOut, free: [...U.free], rwNotes: U.rwNotes || [],
-    reads: `${nIn > 1 ? `(${ps})` : ps} ↦ ${fmtNode(U.node)}`, notes: [`${greek(r.fdef.name)} : ℝ${SUP(nIn)} → ℝ${SUP(nOut)}`, kind] };
+    views, view, draw: view ? funcDraw(U, r, view) : null,
+    rangedParams: ['curve', 'surface', 'grid'].includes(view) ? [...U.params] : [], levelsBox: view === 'levels',
+    reads: `${nIn > 1 ? `(${ps})` : ps} ↦ ${fmtNode(U.node)}`, notes };
 }
 // seq(k)(1/k, 1/(3k), 1/(2k)): the first bracket names the index, the second gives each term.
 const SEQ_RE = /^\s*seq\s*\(\s*([^()]*?)\s*\)\s*(\(.*\))\s*$/;
@@ -2648,7 +3135,7 @@ function createRowEl(row, before) {
       <div class="meta" hidden><span class="chip"></span>
         <select class="sys" id="sys-${row.id}" aria-label="Coordinate system">
           <option value="auto">Auto-detect</option><option value="cart">Cartesian</option><option value="cyl">Cylindrical</option><option value="sph">Spherical</option>
-        </select></div>
+        </select><select class="sys fview" id="fview-${row.id}" aria-label="How to draw this function" hidden></select></div>
       <div class="reads"></div><div class="msg"></div><div class="extra"></div>
     </div>
     <button class="del" type="button" aria-label="Delete expression">×</button>`;
@@ -2679,8 +3166,15 @@ function createRowEl(row, before) {
     });
     ta.addEventListener('compositionend', () => setTimeout(() => { if (ta.value) { const t = ta.value; ta.value = ''; row.mf.typedText(t); } }, 0));
   }
-  el.querySelector('.swatch').addEventListener('click', () => { row.hidden = !row.hidden; el.classList.toggle('off', row.hidden); if (row.obj) row.obj.visible = !row.hidden; if (row.fly) { for (const e of row.fly.leaves.values()) if (e.o) e.o.visible = !row.hidden; for (const o of row.fly.old) o.visible = !row.hidden; } });
+  el.querySelector('.swatch').addEventListener('click', () => {
+    row.hidden = !isHidden(row); row.touched = true; row.autoHide = false; // a click overrides "helper functions start hidden"
+    el.classList.toggle('off', row.hidden);
+    if (row.obj) row.obj.visible = !row.hidden;
+    if (row.fly) { for (const e of row.fly.leaves.values()) if (e.o) e.o.visible = !row.hidden; for (const o of row.fly.old) o.visible = !row.hidden; }
+    if (row.info && row.info.kind === 'func') schedule(0); // a hidden function isn't built, so build it now
+  });
   el.querySelector('.sys').addEventListener('change', e => { row.override = e.target.value; schedule(0); });
+  el.querySelector('.fview').addEventListener('change', e => { row.fview = e.target.value; schedule(0); });
   el.querySelector('.del').addEventListener('click', () => removeRow(row));
 }
 const fmtNum = v => String(+v.toFixed(Math.abs(v) >= 100 ? 1 : 3));
@@ -2730,7 +3224,8 @@ function renderExtra(row, info) {
   const miss = info.missing && info.missing.length ? info.missing : [];
   // these rows' own range boxes can name sliders, so the boxes stay while a name is missing
   // (otherwise typing "inf" or a slider's name would throw the box away at the first letter)
-  const ranged = info.kind === 'seq' || info.kind === 'curve' || info.kind === 'psurface';
+  const fboxes = info.kind === 'func' && (info.rangedParams.length > 0 || info.levelsBox);
+  const ranged = info.kind === 'seq' || info.kind === 'curve' || info.kind === 'psurface' || fboxes;
   const sliderButton = n => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'mk'; b.textContent = `+ Add slider for ${greek(n)}`;
     b.addEventListener('click', () => addRow(`${texName(n)}=1`, { after: row }));
@@ -2739,6 +3234,7 @@ function renderExtra(row, info) {
   let sig = info.kind;
   if (info.kind === 'seq') sig += info.v;
   if (info.kind === 'curve' || info.kind === 'psurface') sig += info.params.filter(p => !(info.setRanges && info.setRanges[p])).join('');
+  if (fboxes) sig += `|${info.view}|${info.rangedParams.join(',')}|${info.levelsBox}|${state.L}|${state.conv}`; // placeholders show the box and angle defaults
   if (info.mapped) sig += '|map:' + info.mapName;
   if (info.fix) sig += '|fix:' + info.fix.coordSys + (info.fix.refName || '');
   // only a set written out on this line can be converted; a line like B = A just names one
@@ -2803,6 +3299,25 @@ function renderExtra(row, info) {
         b.addEventListener('input', () => { liveGreek(b); row.ranges[p][1] = b.value; schedule(200); });
         ex.appendChild(d);
       }
+    } else if (fboxes) { // a function's inputs (blank = the default shown greyed) and the levels to draw
+      for (const p of info.rangedParams) {
+        const d = document.createElement('div'), dflt = info.draw.rangeDefault(p); d.className = 'rng';
+        d.innerHTML = `<i></i> from <input class="num" id="f0-${row.id}-${p}" type="text"> to <input class="num" id="f1-${row.id}-${p}" type="text">`;
+        d.querySelector('i').textContent = greek(p);
+        d.querySelectorAll('input').forEach((inp, k) => {
+          inp.setAttribute('aria-label', `${greek(p)} ${k ? 'end' : 'start'}`);
+          inp.placeholder = fmtRangeVal(dflt[k]); inp.value = (row.franges[p] || [])[k] || '';
+          inp.addEventListener('input', () => { liveGreek(inp); (row.franges[p] ||= ['', ''])[k] = inp.value; schedule(200); });
+        });
+        ex.appendChild(d);
+      }
+      if (info.levelsBox) {
+        const d = document.createElement('label'); d.className = 'rng';
+        d.innerHTML = `levels <input class="num lv" id="lv-${row.id}" type="text" placeholder="auto" aria-label="Levels to draw, like -1, 0, 1">`;
+        const inp = d.querySelector('input'); inp.value = row.flevels || '';
+        inp.addEventListener('input', () => { liveGreek(inp); row.flevels = inp.value; schedule(300); });
+        ex.appendChild(d);
+      }
     }
     if (convertible) {
       const d = document.createElement('div'); d.className = 'rng convert';
@@ -2843,6 +3358,7 @@ function renderExtra(row, info) {
       if (box.dataset.sig !== ms) { box.dataset.sig = ms; box.replaceChildren(...miss.map(sliderButton)); }
     }
   }
+  renderLegend(row, ex);
   if (info.kind === 'calc' && !(info.missing && info.missing.length)) renderCalc(row, info);
   if (info.kind === 'slider' && !(info.missing && info.missing.length)) {
     const rg = ex.querySelector('.rg'), v = state.defs[info.name];
@@ -2854,13 +3370,58 @@ function renderExtra(row, info) {
     }
   }
 }
+const fmtRangeVal = v => { const k = v / Math.PI, n = Math.round(k); return v !== 0 && Math.abs(k - n) < 1e-9 ? (n === 1 ? 'π' : n === -1 ? '−π' : `${n}π`.replace('-', '−')) : fmtLevel(v); };
+// What a drawing's colours mean: levels as a stepped bar with their values under it, a value ramp as a
+// gradient with its ends, families of lines as swatches. Kept in its own box so a level change during
+// slider play only redraws this, not the range boxes.
+function renderLegend(row, ex) {
+  const lg = row.obj ? row.buildLegend : null;
+  let box = ex.querySelector('.flegend');
+  if (!lg) { if (box) box.remove(); return; }
+  const sig = JSON.stringify(lg);
+  if (!box) { box = document.createElement('div'); box.className = 'flegend'; }
+  if (box.parentNode !== ex || box !== ex.lastElementChild) ex.appendChild(box);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig; box.innerHTML = '';
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const grid = el('div', 'lg-grid');
+  if (lg.kind === 'ramp') {
+    box.append(el('span', 'lg-name', greek(lg.name)), grid);
+    const bar = el('div', 'lg-ramp'); bar.style.background = `linear-gradient(90deg, ${lg.stops.join(', ')})`;
+    const ends = el('div', 'lg-ends');
+    ends.append(el('span', '', (lg.clampLo ? '≤ ' : '') + fmtLevel(lg.lo)), el('span', '', (lg.clampHi ? '≥ ' : '') + fmtLevel(lg.hi)));
+    grid.append(bar, ends);
+  } else if (lg.items.some(it => typeof it.v === 'string')) { // families of lines
+    const items = el('div', 'lg-items');
+    for (const it of lg.items) { const s = el('span', '', it.v), i = el('i'); i.style.background = it.color; s.prepend(i); items.append(s); }
+    box.append(items);
+  } else {
+    if (!lg.items.length) return;
+    box.append(el('span', 'lg-name', `${greek(lg.name)} =`), grid);
+    const k = lg.items.length, bar = el('div', 'lg-bar'), lab = el('div', 'lg-lab');
+    bar.style.gridTemplateColumns = lab.style.gridTemplateColumns = `repeat(${k}, 1fr)`;
+    lg.items.forEach((it, i) => { const sw = el('i'); sw.style.background = it.color; bar.append(sw); lab.append(el('span', '', k > 6 && i % 2 ? '' : fmtLevel(it.v))); });
+    grid.append(bar, lab);
+  }
+}
 function renderRow(row) {
   const info = row.info, el = row.el;
   const meta = el.querySelector('.meta'), chip = el.querySelector('.chip'), sel = el.querySelector('.sys');
   const reads = el.querySelector('.reads'), msg = el.querySelector('.msg');
   const k = info.kind;
-  const drawable = ['explicit', 'implicit', 'region', 'plane2d', 'curve', 'psurface', 'point', 'seq'].includes(k);
-  el.classList.toggle('nodraw', !drawable);
+  el.classList.toggle('nodraw', !isDrawable(info));
+  el.classList.toggle('off', isHidden(row));
+  // a function with more than one way to be drawn gets a menu of them
+  const fv = el.querySelector('.fview'), views = k === 'func' && info.views && info.views.length > 1 ? info.views : null;
+  fv.hidden = !views;
+  if (views) {
+    const sig = views.join() + info.nIn + info.nOut;
+    if (fv.dataset.sig !== sig) {
+      fv.dataset.sig = sig; fv.innerHTML = '';
+      for (const v of views) { const o = document.createElement('option'); o.value = v; o.textContent = viewLabel(v, info.nIn, info.nOut); fv.appendChild(o); }
+    }
+    fv.value = info.view;
+  }
   let chipHTML = '', sys = '';
   if (k === 'explicit' || k === 'implicit' || k === 'region') { sys = info.sys; chipHTML = `<b>${SYS_LABEL[info.sys]}</b><span>${info.form}</span>`; }
   else if (k === 'curve') chipHTML = `<b>Parametric curve</b><span>in ${info.params[0]}</span>`;
@@ -2872,7 +3433,7 @@ function renderRow(row) {
   else if (k === 'define') chipHTML = `<b>Constant</b><span>= ${fmtNum(state.defs[info.name] ?? NaN)}</span>`;
   else if (k === 'calc') chipHTML = '';
   else if (k === 'matrix') chipHTML = `<b>Matrix</b><span>${info.r} × ${info.c}</span>`;
-  else if (k === 'plane2d') chipHTML = `<b>${info.mapped && !info.dim2 ? 'Mapped planar set' : 'Planar set'}</b><span>${info.form}</span>`;
+  else if (k === 'plane2d') chipHTML = `<b>${info.lifted ? 'Graph over a planar set' : info.mapped && !info.dim2 ? 'Mapped planar set' : 'Planar set'}</b><span>${info.form}</span>`;
   if (row.matrix) {
     const bad = new Set((info.bad || []).map(([i, j]) => i * 100 + j)), C = row.matrix.cells[0].length;
     el.querySelectorAll('.mcell').forEach((c, n) => c.classList.toggle('bad', bad.has(Math.floor(n / C) * 100 + n % C)));
@@ -2881,7 +3442,7 @@ function renderRow(row) {
   chip.innerHTML = chipHTML; chip.dataset.sys = sys;
   sel.hidden = info.fromSet || !(k === 'explicit' || k === 'implicit' || k === 'region' || (k === 'error' && row.override !== 'auto'));
   sel.value = row.override;
-  const notes = (info.rwNotes || []).concat(info.notes || []);
+  const notes = (info.rwNotes || []).concat(info.notes || [], row.obj && row.buildNote ? [row.buildNote] : []);
   const showReads = info.reads && k !== 'slider' && notes.length > 0;
   reads.innerHTML = '';
   if (showReads || notes.length) {
@@ -2932,9 +3493,12 @@ function update() {
   }
   for (const [r, m] of fdefs) if (!USERFN.has(m[1])) USERFN.set(m[1], { name: m[1], row: r });
   for (const n of USERFN.keys()) userNames.add(n);
-  const real = fdefs.filter(([r, m]) => !isEquationLike(m, userNames)); // a(x) = z is an equation, not a definition
+  const real0 = fdefs.filter(([r, m]) => !isEquationLike(m, userNames)); // a(x) = z is an equation, not a definition
+  // f(x, y, z) = 1 next to a real definition of f is the level set f = 1, not a second definition
+  const level = new Set(real0.filter(([r, m]) => isLevelEquation(m, userNames)).map(([r]) => r));
   USERFN = new Map(); // owned by the first real definition, even when an equation like a(x) = z comes before it
-  for (const [r, m] of real) if (!USERFN.has(m[1])) USERFN.set(m[1], { name: m[1], row: r });
+  for (const asLevel of [false, true]) for (const [r, m] of real0) if (level.has(r) === asLevel && !USERFN.has(m[1])) USERFN.set(m[1], { name: m[1], row: r });
+  const real = real0.filter(([r, m]) => USERFN.get(m[1]).row === r || !level.has(r));
   for (const [r, m] of real) r.fdef = analyzeFuncDef(r, m, userNames);
   for (const [n, U] of USERFN) if (U.node && !U.err) { try { ufnType(n); } catch (e) { U.err = e.message; } }
   for (const U of USERFN.values()) if (U.node && !U.err) { try { U.fn = cl(U.node); } catch (e) { U.err = e.message; } }
@@ -2982,11 +3546,16 @@ function update() {
     r.info = analyze(r, rw);
     r.info.rwNotes = rw.notes;
   }
-  // sliders in a curve's or surface's parameter ranges count too, so moving one redraws it
+  // sliders in a curve's or surface's parameter ranges (or a function's range and levels boxes) count too,
+  // so moving one redraws it
   for (const r of state.rows) {
-    const info = r.info;
-    if (info.kind !== 'curve' && info.kind !== 'psurface') continue;
-    for (const p of info.params) for (const q of (info.setRanges && info.setRanges[p]) || r.ranges[p] || []) {
+    const info = r.info, strs = [];
+    if (info.kind === 'curve' || info.kind === 'psurface') for (const p of info.params) strs.push(...((info.setRanges && info.setRanges[p]) || r.ranges[p] || []));
+    else if (info.kind === 'func') {
+      for (const p of info.rangedParams) strs.push(...(r.franges[p] || []));
+      if (info.levelsBox && typedLevels(r.flevels, {}) !== null) strs.push(...splitTop(String(r.flevels), [',', ';']));
+    }
+    for (const q of strs) {
       if (q == null || !String(q).trim()) continue;
       try {
         for (const n of symbolsOf(parse(rewrite(String(q), userNames).s)))
@@ -3002,11 +3571,18 @@ function update() {
     }
     return acc;
   };
+  const usedFns = new Set(); // functions some other line uses
   for (const r of state.rows) {
     if (r.matrix) { r.depSig = ''; continue; }
     const dp = depsOf(r.fdef && USERFN.get(r.fdef.name) ? USERFN.get(r.fdef.name).src || '' : r.text, { sets: new Set(), fns: new Set() });
     if (r.info.free) for (const n of dp.fns) for (const v of USERFN.get(n).free || []) if (!r.info.free.includes(v)) r.info.free.push(v);
+    for (const n of dp.fns) if (!(r.fdef && r.fdef.name === n)) usedFns.add(n);
     r.depSig = JSON.stringify([[...dp.sets].map(n => SETDEFS.get(n).text), [...dp.fns].map(n => [USERFN.get(n).params, USERFN.get(n).src])]);
+  }
+  // a function used on another line is a helper: not drawn until its dot is clicked
+  for (const r of state.rows) {
+    r.autoHide = r.info.kind === 'func' && !!r.info.view && !r.touched && usedFns.has(r.info.name);
+    if (r.autoHide) r.info.notes.push(`not drawn: it's used on another line — click the dot to draw it`);
   }
   // definitions & sliders
   const defs = {}, defRows = state.rows.filter(r => r.info.kind === 'slider' || r.info.kind === 'define' || r.info.kind === 'matrix');
@@ -3031,29 +3607,35 @@ function update() {
     names.forEach(go);
     return out.size ? [...out] : names.filter(n => !(n in defs) && n !== self); // definitions that wait on each other
   };
+  state.dark = new THREE.Color(css('--canvas')).getHSL({}).l < 0.5; // ramps flip on a dark canvas
   for (const r of state.rows) {
     const info = r.info;
     if (info.free) info.missing = missingOf(info.free, info.name);
     if (info.kind === 'calc') info.value = info.missing.length ? NaN : info.fn(defs);
-    const drawable = ['explicit', 'implicit', 'region', 'plane2d', 'curve', 'psurface', 'point', 'seq'].includes(info.kind) && !info.missing.length;
+    const di = info.kind === 'func' ? info.draw : info; // what the builders draw: a function row's view
+    const drawable = isDrawable(info) && !info.missing.length && !(info.kind === 'func' && isHidden(r)); // hidden helpers aren't built
     if (!drawable) {
       if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; r.key = null; }
       clearFly(r);
-    } else if (state.mode === 'fly' && CHUNKED.includes(info.kind) && !info.mapped) { // mapped sets are drawn whole
+      r.buildLegend = null; r.buildNote = '';
+    } else if (state.mode === 'fly' && CHUNKED.includes(di.kind) && !info.mapped && !info.paint) { // mapped and painted sets are drawn whole
       if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; r.key = null; }
-      const fkey = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.quality, state.L, r.color, info.free.map(n => defs[n])]);
-      if (!r.fly || r.fly.fkey !== fkey) resetFly(r, fkey, info, Object.assign({}, defs));
+      const fkey = JSON.stringify([r.rw.s, r.depSig, info.kind, info.view, info.sys, r.override, state.conv, state.quality, state.L, r.color, info.free.map(n => defs[n])]);
+      if (!r.fly || r.fly.fkey !== fkey) resetFly(r, fkey, di, Object.assign({}, defs));
+      r.buildLegend = null; r.buildNote = '';
     } else {
       clearFly(r);
       GEN = state.mode === 'fly' ? { box: B(), planes: [], grid: Q().grid, iso: Q().iso, fly: true } : genOrbit();
-      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth,
-        info.params && info.params.map(p => r.ranges[p]), info.kind === 'seq' && [r.seqRange, r.seqLine !== false], info.free.map(n => defs[n])]);
+      r.vizSig = JSON.stringify([r.rw.s, r.depSig, info.view, state.L, state.quality]); // what auto scales and levels may persist across
+      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth, state.dark,
+        info.params && info.params.map(p => r.ranges[p]), info.kind === 'seq' && [r.seqRange, r.seqLine !== false],
+        info.kind === 'func' && [info.view, info.rangedParams.map(p => r.franges[p]), info.levelsBox && r.flevels], info.free.map(n => defs[n])]);
       if (key !== r.key) {
         if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; }
-        const b = { explicit: buildExplicit, implicit: buildImplicit, region: buildRegion, plane2d: buildPlane2D, curve: buildCurve, psurface: buildPSurface, point: buildPoint, seq: buildSeq }[info.kind];
-        try { r.obj = buildRowObject(r, info, defs, b); } catch (e) { info.warn = "Couldn't draw this."; }
-        r.buildWarn = info.warn || '';
-        if (r.obj) { r.obj.visible = !r.hidden; scene.add(r.obj); }
+        di.warn = di.note = ''; di.legend = null;
+        try { r.obj = buildRowObject(r, di, defs, BUILDERS[di.kind]); } catch (e) { di.warn = "Couldn't draw this."; }
+        r.buildWarn = di.warn || ''; r.buildLegend = di.legend || null; r.buildNote = di.note || '';
+        if (r.obj) { r.obj.visible = !isHidden(r); scene.add(r.obj); }
         const empty = r.obj && !hasGeometry(r.obj);
         r.emptyWarn = !r.obj || empty ? 'Nothing to draw inside the current range.' : '';
         r.key = key;
@@ -3063,9 +3645,25 @@ function update() {
     renderRow(r);
   }
 }
+const BUILDERS = {
+  explicit: buildExplicit, implicit: buildImplicit, region: buildRegion, plane2d: buildPlane2D, curve: buildCurve, psurface: buildPSurface, point: buildPoint, seq: buildSeq,
+  flevels3: buildLevelSurfaces, flevels2: buildLevelCurves, farrows: buildArrows, fgrid: buildGridImage, ffibers: buildFibers,
+};
+// Rows that can draw something; a function row draws its view (none for ℝ⁴ → … or when it has a problem).
+function isDrawable(info) {
+  const di = info.kind === 'func' ? info.draw : info;
+  return !!di && di.kind in BUILDERS;
+}
+const isHidden = r => r.hidden || !!r.autoHide;
+// Is anything visible in o? Fat lines and instanced arrows count by their segments and instances.
 function hasGeometry(o) {
   let any = false;
-  o.traverse(c => { if (c.isMesh && c.geometry) { const n = c.geometry.index ? c.geometry.index.count : c.geometry.attributes.position.count; if (n > 0) any = true; } });
+  o.traverse(c => {
+    if (!c.geometry) return;
+    const g = c.geometry, n = c.isInstancedMesh ? c.count : g.attributes.instanceStart ? g.attributes.instanceStart.count
+      : !c.isMesh && !c.isLineSegments ? 0 : g.index ? g.index.count : g.attributes.position ? g.attributes.position.count : 0;
+    if (n > 0) any = true;
+  });
   return any;
 }
 
@@ -3086,7 +3684,8 @@ function sortSeeThrough() {
     list.push([camera.position.distanceToSquared(g.userData.center), meshes]);
   }
   list.sort((a, b) => b[0] - a[0]);
-  list.forEach(([, meshes], i) => { for (const m of meshes) m.renderOrder = 10 + 3 * i + m.userData.pass; });
+  // userData.sub (0–0.9) orders meshes of one pass within a shape, e.g. nested level surfaces
+  list.forEach(([, meshes], i) => { for (const m of meshes) m.renderOrder = 10 + 3 * i + m.userData.pass + (m.userData.sub || 0); });
 }
 // FPS counter: frames counted over half-second windows; colour shows smooth / ok / choppy.
 const fpsEl = document.getElementById('fps'), fpsNum = fpsEl.querySelector('b');
@@ -3199,7 +3798,7 @@ exSel.addEventListener('change', () => {
   const ex = EXAMPLES[+exSel.value]; exSel.value = '';
   if (!ex) return;
   const blank = state.rows.find(r => !r.text.trim());
-  if (blank) { setRowLatex(blank, ex.tex); blank.ranges = Object.assign({ t: ['0', '2π'], u: ['0', '2π'], v: ['0', 'π'] }, ex.ranges || {}); blank.extraSig = ''; schedule(0); }
+  if (blank) { setRowLatex(blank, ex.tex); blank.ranges = Object.assign({ t: ['0', '2π'], u: ['0', '2π'], v: ['0', 'π'] }, ex.ranges || {}); Object.assign(blank, { franges: {}, flevels: '', fview: null, touched: false }); blank.extraSig = ''; schedule(0); }
   else addRow(ex.tex, { ranges: ex.ranges });
 });
 document.getElementById('keys').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
@@ -3418,7 +4017,7 @@ document.getElementById('collapse').addEventListener('click', () => setSidebar(f
 document.getElementById('expand').addEventListener('click', () => setSidebar(true));
 try { if (localStorage.getItem('locus-sidebar') === 'closed') setSidebar(false); } catch (e) { /* storage unavailable */ }
 
-const themeRefresh = () => { buildHelpers(); };
+const themeRefresh = () => { buildHelpers(); schedule(0); }; // colour ramps flip with the theme
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeRefresh);
 new MutationObserver(themeRefresh).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(themeRefresh);

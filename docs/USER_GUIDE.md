@@ -64,7 +64,7 @@ CommunityGrapher3D is a 3D graphing calculator that reads math the way you write
 
 ### Each line's controls
 
-- **Coloured dot:** click it to show or hide that graph. A hidden graph's dot is hollow.
+- **Coloured dot:** click it to show or hide that graph. A hidden graph's dot is hollow. A function that other lines use starts hidden.
 - **Chip:** what the app understood, e.g. **SPHERICAL ρ = f(θ, φ)**, **CYLINDRICAL implicit surface**, **Planar set**, **Function ℝ³ → ℝ³**, **Sequence in k**.
 - **Coordinate menu** (*Auto-detect / Cartesian / Cylindrical / Spherical*): appears on surfaces and solids. Use it to override the detected system.
 - **reads as …:** appears when the app reinterpreted something you typed, such as splitting `xy` into x·y or reading `roh` as ρ, so you can check it understood correctly.
@@ -359,6 +359,31 @@ q(x) = x²                        ℝ → ℝ
 - A function may use sliders, e.g. `f(a, b, c) = (ka, b, c)`. Moving `k` redraws everything that uses `f`.
 - Functions can call other functions. A function can't call itself.
 - A line like `a(x) = z` uses a coordinate that isn't one of its inputs, so it's read as an ordinary equation (a·x = z), not a function.
+- Once `f` is defined, a line like `f(x, y, z) = 4` (coordinates in, a number or slider out) is the equation f = 4: the level surface, drawn like any implicit surface.
+
+### Drawing a function
+
+A function line draws itself. What you see depends on how many numbers go in (n) and come out (m):
+
+| f : ℝⁿ → ℝᵐ | Drawn as | Other view in the menu |
+|---|---|---|
+| ℝ → ℝ, `q(x) = x²` | its graph y = q(x), in the xy-plane | |
+| ℝ → ℝ², `g(t) = (cos t, sin 2t)` | the curve it traces, in the xy-plane | Graph: the space curve (t, g₁(t), g₂(t)) |
+| ℝ → ℝ³, `h(t) = (cos t, sin t, t/4)` | the curve it traces | |
+| ℝ² → ℝ, `m(x, y) = x² − y²` | its graph z = m(x, y) | Level curves m = c in the xy-plane |
+| ℝ² → ℝ², `F(x, y) = (−y, x)` | arrows: F(p) drawn at each point p | Grid image: where F sends a grid of lines |
+| ℝ² → ℝ³, `s(u, v) = (u, v, u² − v²)` | the surface it traces | |
+| ℝ³ → ℝ, `f(x, y, z) = x² + y² + z²` | level surfaces f = c | |
+| ℝ³ → ℝ², `p(x, y, z) = (x² + y², z)` | fibers: the curves where p = (c₁, c₂) | Arrows (p₁, p₂, 0) |
+| ℝ³ → ℝ³, `F(x, y, z) = (−y, x, z/2)` | arrows | Grid image |
+
+- **Picking a view:** when there's a choice, a menu next to the chip switches between them. For ℝ² → ℝ² and ℝ³ → ℝ³ the default is arrows when the inputs are the coordinates themselves, like `F(x, y)`, and the grid image when they aren't, like the polar map `P(r, θ) = (r cos θ, r sin θ)`, whose grid image is circles and rays.
+- **Domains:** graphs, arrows and level sets cover the graph box. Curves, surfaces and grid images have range boxes for each input. Left blank, an input used inside sin or cos runs over a full turn, 0 to 2π (0 to π for the angle down from +z), an `r` or `ρ` runs from 0 to the box edge, and anything else spans the box. The greyed text shows the default. Sliders work in these boxes.
+- **Levels:** level curves and level surfaces pick round values across the function's range. Their legend shows each level's colour, from light (low) to dark (high), flipped in dark mode. Type your own in the **levels** box, like `-1, 0, 1` or `0, c` with a slider c.
+- **Arrows** keep their length scale while a slider moves, so you can watch the field grow and shrink. The note says the scale, for example *arrows at 0.05× true length*, and how many very long arrows were shortened to fit. Where the field is about zero there's a dot.
+- **Helpers start hidden.** A function that another line uses, like `f` in `f(A)`, isn't drawn at first: its dot is hollow and a note says so. Click the dot to draw it.
+- Poles are never drawn as surfaces: for `1/(1 − x² − y² − z²)` the level surfaces stop short of the unit sphere instead of drawing a fake sheet on it.
+- Functions with more than three inputs can't be drawn.
 
 ### Using functions in any line
 
@@ -377,6 +402,22 @@ Give `f` a set and it draws the image of that set, meaning every point of the se
 f({(a, b, c) : a² + b² + c² = 1})       an ellipsoid with semi-axes 3, 2, 4
 g({(x, y) : x² + y² ≤ 4})               a disk lifted into a saddle surface
 ```
+
+A function that gives a single number can't move points, so it shows its values instead:
+
+```
+m(x, y) = x² − y²
+m({(x, y) : x² + y² ≤ 4})               the graph of m over the disk: a saddle patch
+
+k(x, y, z) = z
+k({(x, y, z) : x² + y² + z² = 4})       the sphere, coloured by k
+```
+
+- **On a set in the plane** you get the graph of the function over the set: each point (x, y) is lifted to height m(x, y). **Show both** keeps the flat set too.
+- **On a set in space** the set keeps its shape and is coloured by the value: light for low values, dark for high (the other way round in dark mode), with thin lines at round values. A legend shows the range. When a few far-out values would squash the colours, they stop at the 2nd and 98th percentiles (≤ and ≥ in the legend) and the note gives the full range. For a solid, the colour shows the values on its surface.
+- If the function is the same all over the set, the whole set gets one colour and the note gives the value, like *q ≈ 4 all over this set* for x² + y² + z² on the sphere of radius 2.
+- If the function blows up on the set, for example `1/(1 − x² − y² − z²)` on the unit sphere, where it divides by zero, the set isn't coloured and the line says why.
+- A function that gives a number has to be the last one applied: `g(k(S))` says so.
 
 ### Naming sets
 
@@ -398,7 +439,7 @@ Applying a function works with surfaces, solids, planar regions and curves, and 
 The app checks that the set and the function fit together, and explains when they don't:
 
 - **Wrong dimension:** *"f : ℝ³ → ℝ³ takes 3 inputs, but A is in ℝ², with points (a, b)."*
-- **A function that gives a number:** *"q : ℝ → ℝ gives a single number, so it can't move points — make it give a point."*
+- **After a function that gives a number:** *"k already turns this set into numbers (its colours), so g can't be applied after it."*
 - **Undefined function:** *"h isn't a function yet — define it on another line, like h(x, y, z) = (…, …, …)."*
 
 Functions work on **Cartesian** points. If the set is written in cylindrical, spherical or polar coordinates, the line says so:
@@ -556,6 +597,8 @@ Any other name, like `a`, `k`, `N`, `a_1` or `λ`, can be a slider, constant, ma
 | ***Mixed coordinates need an equation.*** | When mixing Cartesian and polar variables, write `… = …`. |
 | ***… is defined twice.*** | Rename or delete one of the definitions. |
 | ***A set can have one equation…*** | Keep one equation and trim it with inequalities. |
+| ***f blows up or jumps on this set…*** | The function divides by zero (or jumps) on the set, so colouring the set by it wouldn't mean anything. Try a set that avoids the problem, or draw the function's own level surfaces. |
+| A function line isn't drawn and its dot is hollow | Another line uses it, so it starts hidden. Click the dot to draw it. |
 | Edges look bumpy or jagged | Raise **Resolution**. |
 | The app feels slow (low FPS) | Lower **Resolution**, hide graphs you don't need with their dots, or lower the render distance in fly mode. |
 | `1e9` doesn't mean a billion | `e` is always Euler's number, so `1e9` reads as 1·e·9. Type `1000000000` instead. |
