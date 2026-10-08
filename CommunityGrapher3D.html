@@ -1755,6 +1755,7 @@ function applyFunc(fname, info) {
   };
   if (nOut === 1) {
     info.lifted = true;
+    info.refName = `${fname}(${info.refName || '…'})`; delete info.coordNames; // later messages talk about the graph, a set in space
     info.reads = `graph of ${f} over ${info.reads}`;
     info.notes = (info.notes || []).concat([sig, `height = the value of ${f}`]);
     if (info.form) info.form = `graph of ${f} over a ${info.form}`;
@@ -1901,105 +1902,120 @@ function liftLook(obj, color) {
   for (const c of fills) { c.parent.add(...twoPass(c.geometry, color)); c.parent.remove(c); c.material.dispose(); }
 }
 // Paint a set in space with a function's value at each point (f : ℝ³ → ℝ applied to the set), with
-// level lines at the legend's ticks so values read the same whatever the lighting. If the mesh can't
-// resolve f there (it blows up on the set, so neighbouring points disagree wildly) nothing is painted.
+// level lines at the legend's ticks so values read the same whatever the lighting. f is read on the set
+// itself; when it can't be shown honestly (undefined, blowing up, or changing faster than the mesh) the
+// set keeps its own colour and the line says why.
 function applyPaint(obj, info, defs, row) {
   if (!obj) return obj;
   const s = Object.assign({}, defs), f = P => info.paint.f(s, P), name = greek(info.paint.name), ink = css('--ink');
+  const color = row ? row.color : PALETTE[0];
   if (!obj.isGroup) { const g = new THREE.Group(); g.add(obj); obj = g; } // a point is a bare mesh: give its lines a parent
   if (info.kind === 'point') { // one value: the point's own colour
-    const P = info.vec(defs), x = isArr(P) ? f(P) : NaN, rgb = Number.isFinite(x) ? ramp(row ? row.color : '#2f6fed', 0.6) : [0.6, 0.62, 0.66];
+    const P = info.vec(defs), x = isArr(P) ? f(P) : NaN, rgb = Number.isFinite(x) ? ramp(color, 0.6) : [0.6, 0.62, 0.66];
     obj.traverse(c => { if (c.material) c.material.color.setRGB(...rgb); });
     info.legend = Number.isFinite(x) ? { kind: 'levels', name: info.paint.name, items: [{ v: +x.toPrecision(6), color: rgbHex(rgb) }] } : null;
     if (!Number.isFinite(x)) info.warn = `${name} isn't defined at this point.`;
     return obj;
   }
+  // A surface given by an equation is drawn from a grid, so its vertices sit a little off it: move each
+  // onto the set first (Newton steps). A curve's tube is read on the curve itself.
+  const onSet = info.kind === 'implicit' && !info.mapped ? projector(info, defs) : null;
   obj.updateMatrixWorld(true);
   const parts = [], seen = new Set(), all = [], v = new THREE.Vector3();
   obj.traverse(c => {
     if (!c.isMesh || c.isInstancedMesh || c.isLineSegments2 || !c.geometry || seen.has(c.geometry)) return;
     seen.add(c.geometry);
     const pos = c.geometry.attributes.position, vals = new Float64Array(pos.count);
-    const tube = c.geometry.type === 'TubeGeometry' ? c.geometry.parameters : null, ring = new Map(); // a curve: f on its centre line
+    const tube = c.geometry.type === 'TubeGeometry' ? c.geometry.parameters : null, ring = new Map();
     for (let i = 0; i < pos.count; i++) {
       if (tube) { const k = Math.floor(i / (tube.radialSegments + 1)); if (!ring.has(k)) { const q = tube.path.getPointAt(k / tube.tubularSegments); ring.set(k, f([q.x, q.y, q.z])); } vals[i] = ring.get(k); }
-      else { v.fromBufferAttribute(pos, i).applyMatrix4(c.matrixWorld); vals[i] = f([v.x, v.y, v.z]); }
+      else { v.fromBufferAttribute(pos, i).applyMatrix4(c.matrixWorld); const p = [v.x, v.y, v.z]; vals[i] = f(onSet ? onSet(p) : p); }
       all.push(vals[i]);
     }
     parts.push({ c, vals, tube });
   });
-  const finite = all.filter(x => Number.isFinite(x) && Math.abs(x) < 1e12);
-  const neutral = () => obj.traverse(c => { // lines in the row colour would read as a value
-    if (c.isLineSegments2) c.material.color.set(ink);
-    else if (c.isLineSegments) { c.material.color.set(ink); c.material.transparent = true; c.material.opacity = Math.min(c.material.opacity, 0.2); }
-  });
   if (!all.length) return obj;
-  if (finite.length < 0.8 * all.length) { info.warn = `${name} isn't defined on most of this set (it divides by zero or blows up there), so it can't colour it.`; return obj; }
+  const big = x => !Number.isFinite(x) ? !Number.isNaN(x) : Math.abs(x) >= 1e12; // ±∞ or huge: blowing up
+  const finite = all.filter(x => Number.isFinite(x) && Math.abs(x) < 1e12), nBig = all.filter(big).length;
+  if (finite.length < 0.2 * all.length) {
+    info.warn = nBig > (all.length - finite.length) / 2 ? `${name} blows up on this set (it divides by zero there), so it can't colour it.`
+      : `${name} isn't defined on this set (like √ or ln of a negative number), so it can't colour it.`;
+    return obj;
+  }
+  // exact values from the set's own parametrisation, when it has one, to judge whether f is constant on it
+  const exact = info.vec && (info.kind === 'curve' || info.kind === 'psurface') ? exactValues(info, defs, row, f) : null;
   const [lo0, mid, hi0] = quantiles(finite, 0.02, 0.5, 0.98), spread = hi0 - lo0;
-  // roughness: how far apart neighbouring vertices sit in the ranking of all values (smooth: small, noise: ~0.3)
-  let rough = 0;
-  if (spread > 1e-9 * Math.max(1, Math.abs(mid))) {
-    const sorted = Float64Array.from(finite).sort(), rank = x => { let a = 0, b = sorted.length; while (a < b) { const m = (a + b) >> 1; if (sorted[m] < x) a = m + 1; else b = m; } return a / sorted.length; };
-    const diffs = [];
-    for (const { c, vals } of parts) {
-      const I = c.geometry.index ? c.geometry.index.array : null, nt = I ? I.length : vals.length, stride = Math.max(3, 3 * Math.floor(nt / 3 / 6000));
-      for (let t = 0; t + 2 < nt; t += stride) { const a = I ? I[t] : t, b = I ? I[t + 1] : t + 1; if (Number.isFinite(vals[a]) && Number.isFinite(vals[b])) diffs.push(Math.abs(rank(vals[a]) - rank(vals[b]))); }
-    }
-    [rough] = quantiles(diffs, 0.5);
-  }
-  // Rough values are mesh error, not f: either f is constant on the set (it changes much more across the
-  // surface, one grid cell either side, than along the drawn points) or it blows up there.
-  let constant = !(spread > 1e-9 * Math.max(1, Math.abs(mid))), acrossMid = 0;
-  if (!constant && rough > 0.12) {
-    const h = 2 * state.L / Q().iso, across = [];
-    for (const { c, vals, tube } of parts) {
-      const N = c.geometry.attributes.normal; if (tube || !N) continue;
-      const stride = Math.max(1, Math.floor(vals.length / 2000));
-      for (let i = 0; i < vals.length; i += stride) {
-        const A = c.geometry.attributes.position, p = [A.getX(i), A.getY(i), A.getZ(i)], n = [N.getX(i), N.getY(i), N.getZ(i)];
-        const d = f(p.map((x, k) => x + h * n[k])) - f(p.map((x, k) => x - h * n[k]));
-        if (Number.isFinite(d)) across.push(Math.abs(d));
-      }
-    }
-    [acrossMid] = quantiles(across, 0.5);
-    constant = spread < 0.25 * acrossMid;
-    if (!constant) { info.warn = `${name} blows up or jumps on this set (for example it divides by zero there), so its colours wouldn't mean anything.`; return obj; }
-  }
-  // colours span the values, or the middle 96 % of them when a few are far out (near a pole off the set)
   let mn = Infinity, mx = -Infinity;
   for (const x of finite) { if (x < mn) mn = x; if (x > mx) mx = x; }
-  const light = mx - mn <= 1.5 * spread;
-  // the colour domain stays put while a slider plays, unless the values leave it or shrink a lot
-  let lo = light ? mn : lo0, hi = light ? mx : hi0;
+  // how much f changes one grid cell off the set (either side, whichever is more): the scale of "constant"
+  const h = 2 * state.L / Q().iso, across = [];
+  for (const { c, vals, tube } of parts) {
+    const N = c.geometry.attributes.normal, A = c.geometry.attributes.position; if (tube || !N) continue;
+    for (let i = 0, st = Math.max(1, Math.floor(vals.length / 1500)); i < vals.length; i += st) {
+      const p = [A.getX(i), A.getY(i), A.getZ(i)], n = [N.getX(i), N.getY(i), N.getZ(i)], f0 = f(p);
+      const d = Math.max(Math.abs(f(p.map((x, k) => x + h * n[k])) - f0), Math.abs(f(p.map((x, k) => x - h * n[k])) - f0));
+      if (Number.isFinite(d)) across.push(d);
+    }
+  }
+  const [acrossMid] = across.length ? quantiles(across, 0.5) : [0];
+  const [elo, ehi] = exact && exact.length ? [Math.min(...exact), Math.max(...exact)] : [lo0, hi0];
+  const scale = Math.max(Math.abs(elo), Math.abs(ehi), acrossMid, 1e-300), tol = exact && exact.length ? 1e-9 : 1e-6; // Float32 vertices: ~1e-7
+  let constant = !(ehi - elo > tol * scale), why = '';
+  // roughness: how far apart neighbouring vertices sit in the ranking of all values (smooth: small, noise: ~0.3)
+  const sorted = Float64Array.from(finite).sort(), rank = x => { let a = 0, b = sorted.length; while (a < b) { const m = (a + b) >> 1; if (sorted[m] < x) a = m + 1; else b = m; } return a / sorted.length; };
+  const edges = []; // [part, a, b] samples of mesh edges
+  for (const part of parts) {
+    const I = part.c.geometry.index ? part.c.geometry.index.array : null, nt = I ? I.length : part.vals.length, st = Math.max(3, 3 * Math.floor(nt / 3 / 6000));
+    for (let t = 0; t + 2 < nt; t += st) for (let e = 0; e < 3; e++) edges.push([part, I ? I[t + e] : t + e, I ? I[t + (e + 1) % 3] : t + (e + 1) % 3]);
+  }
+  const [rough] = constant ? [0] : quantiles(edges.filter(([p, a, b]) => Number.isFinite(p.vals[a]) && Number.isFinite(p.vals[b])).map(([p, a, b]) => Math.abs(rank(p.vals[a]) - rank(p.vals[b]))), 0.5);
+  // poles on the set: an edge where f changes sign through ∞ rather than through 0
+  let poles = 0;
+  if (!constant) for (const [p, a, b] of edges) {
+    if (p.tube || (p.vals[a] < 0) === (p.vals[b] < 0) || Number.isNaN(p.vals[a]) || Number.isNaN(p.vals[b])) continue;
+    const P = p.c.geometry.attributes.position, A = [P.getX(a), P.getY(a), P.getZ(a)], B = [P.getX(b), P.getY(b), P.getZ(b)], fa = f(A), fb = f(B);
+    if (Number.isFinite(fa) && Number.isFinite(fb) && (fa < 0) !== (fb < 0) && poleCrossing(u => f(A.map((x, k) => x + (B[k] - x) * u)), fa, fb, true)) poles++;
+  }
+  // a vertex sitting right on a pole shows up as a value far beyond the rest
+  const [q5, q95] = quantiles(finite, 0.05, 0.95), typical = Math.max(Math.abs(q5), Math.abs(q95), 1e-300);
+  if (!constant) for (const x of finite) if (Math.abs(x) > 1e3 * typical) poles++;
+  if (!constant && rough > 0.12) { // neighbouring values disagree: mesh error, a blow-up, or f too wiggly for the mesh
+    if (!exact && !onSet && spread < 0.25 * acrossMid) constant = true; // f is constant on the set; the wobble is the mesh's
+    else if (poles || nBig > 0.01 * all.length) why = `${name} blows up on this set (it divides by zero there), so its colours wouldn't mean anything.`;
+    else why = `${name} changes too fast for the mesh here — raise Resolution to colour it.`;
+  }
+  if (why) { info.warn = why; return obj; }
+  // colours span the values, or the middle 90 % of them when some are far out (near a pole)
+  const light = mx - mn <= 1.5 * spread && !poles;
+  let lo = light ? mn : q5, hi = light ? mx : q95;
   if (!(hi > lo)) { lo = lo0; hi = hi0; }
-  const prev = sticky(row, 'dom');
+  const prev = sticky(row, 'dom'); // the colour domain stays put while a slider plays, unless the values leave it or shrink a lot
   if (!constant && prev && lo >= prev[0] - 0.25 * (prev[1] - prev[0]) && hi <= prev[1] + 0.25 * (prev[1] - prev[0]) && hi - lo > 0.5 * (prev[1] - prev[0])) [lo, hi] = prev;
   if (!constant) keep(row, 'dom', [lo, hi]);
-  const LUT = Array.from({ length: 65 }, (_, i) => ramp(row ? row.color : '#2f6fed', i / 64)), grey = [0.6, 0.62, 0.66];
-  const colorOf = x => (!Number.isFinite(x) ? grey : constant ? LUT[40] : LUT[Math.round(64 * Math.min(1, Math.max(0, (x - lo) / (hi - lo))))]);
+  const LUT = Array.from({ length: 65 }, (_, i) => ramp(color, i / 64)), grey = [0.6, 0.62, 0.66];
+  const colorOf = x => (!Number.isFinite(x) || Math.abs(x) >= 1e12 ? grey : constant ? LUT[40] : LUT[Math.round(64 * Math.min(1, Math.max(0, (x - lo) / (hi - lo))))]);
   const ticks = constant ? [] : niceLevels(finite.filter(x => x >= lo && x <= hi), 6, 9).levels.filter(c => c > lo && c < hi);
   for (const { c, vals } of parts) {
     const col = new Float32Array(vals.length * 3);
     vals.forEach((x, i) => col.set(colorOf(x), i * 3));
     c.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    if (!ticks.length) continue;
     // level lines of f on this piece, in ink
-    if (ticks.length) {
-      const P = c.geometry.attributes.position.array, I = c.geometry.index ? c.geometry.index.array : null, nt = I ? I.length : vals.length, segs = [];
-      for (let t = 0; t + 2 < nt; t += 3) {
-        const id = [0, 1, 2].map(k => (I ? I[t + k] : t + k));
-        for (const lv of ticks) {
-          const pts = [];
-          for (let e = 0; e < 3; e++) {
-            const a = id[e], b = id[(e + 1) % 3], fa = vals[a] - lv, fb = vals[b] - lv;
-            if (!Number.isFinite(fa) || !Number.isFinite(fb) || (fa < 0) === (fb < 0)) continue;
-            const u = fa / (fa - fb);
-            pts.push([0, 1, 2].map(k => P[a * 3 + k] + (P[b * 3 + k] - P[a * 3 + k]) * u));
-          }
-          if (pts.length === 2) segs.push(...pts[0], ...pts[1]);
+    const P = c.geometry.attributes.position.array, I = c.geometry.index ? c.geometry.index.array : null, nt = I ? I.length : vals.length, segs = [];
+    for (let t = 0; t + 2 < nt; t += 3) {
+      const id = [0, 1, 2].map(k => (I ? I[t + k] : t + k));
+      for (const lv of ticks) {
+        const pts = [];
+        for (let e = 0; e < 3; e++) {
+          const a = id[e], b = id[(e + 1) % 3], fa = vals[a] - lv, fb = vals[b] - lv;
+          if (!Number.isFinite(fa) || !Number.isFinite(fb) || (fa < 0) === (fb < 0)) continue;
+          const u = fa / (fa - fb);
+          pts.push([0, 1, 2].map(k => P[a * 3 + k] + (P[b * 3 + k] - P[a * 3 + k]) * u));
         }
+        if (pts.length === 2) segs.push(...pts[0], ...pts[1]);
       }
-      if (segs.length) { const ln = fatLines(segs, ink, 1.2, GEN.planes); ln.material.transparent = true; ln.material.opacity = 0.55; ln.userData.pass = 2; c.parent.add(ln); }
     }
+    if (segs.length) { const ln = fatLines(segs, ink, 1.2, GEN.planes); ln.material.transparent = true; ln.material.opacity = 0.55; ln.userData.pass = 2; c.parent.add(ln); }
   }
   obj.traverse(c => {
     if (!c.isMesh || c.isLineSegments2 || !c.material || !c.geometry.attributes.color) return;
@@ -2013,16 +2029,62 @@ function applyPaint(obj, info, defs, row) {
     if (c.userData.pass === 0) m.opacity = 0.3; else if (c.userData.pass === 1) m.opacity = 0.9;
     m.needsUpdate = true;
   });
-  neutral();
-  if (constant) { // the drawn points sit a little off the set, so round to what that error allows (4, not 3.98771)
-    const q = acrossMid > 0 ? niceStep(0.05 * acrossMid) : 0, val = +((q ? Math.round(mid / q) * q : mid) + 0).toPrecision(6);
+  obj.traverse(c => { // lines in the row colour would read as a value
+    if (c.isLineSegments2) c.material.color.set(ink);
+    else if (c.isLineSegments) { c.material.color.set(ink); c.material.transparent = true; c.material.opacity = Math.min(c.material.opacity, 0.2); }
+  });
+  const notes = [];
+  if (all.length > finite.length + nBig) notes.push(`grey where ${name} isn't defined`);
+  if (constant) {
+    const val = roundWithin(exact && exact.length ? (elo + ehi) / 2 : mid, Math.max(exact && exact.length ? ehi - elo : spread, tol * scale));
     info.legend = { kind: 'levels', name: info.paint.name, items: [{ v: val, color: rgbHex(LUT[40]) }] };
-    info.note = `${name} ≈ ${fmtLevel(val)} all over this set`;
+    notes.unshift(`${name} ≈ ${fmtLevel(val)} all over this set`);
   } else {
-    info.legend = { kind: 'ramp', name: info.paint.name, lo: +lo.toPrecision(3), hi: +hi.toPrecision(3), clampLo: mn < lo, clampHi: mx > hi, stops: [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => rgbHex(LUT[i * 8])) };
-    info.note = mn < lo || mx > hi ? `${name} runs from ${fmtLevel(+mn.toPrecision(3))} to ${fmtLevel(+mx.toPrecision(3))} here` : '';
+    const span = hi - lo, slack = 0.02 * span;
+    info.legend = { kind: 'ramp', name: info.paint.name, lo, hi, loText: fmtSpan(lo, span), hiText: fmtSpan(hi, span), clampLo: mn < lo - slack, clampHi: mx > hi + slack, stops: [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => rgbHex(LUT[i * 8])) };
+    if (poles) notes.unshift(`${name} is unbounded near part of this set (it divides by zero there)`);
+    else if (mn < lo - slack || mx > hi + slack) notes.unshift(`${name} runs from ${fmtSpan(mn, span)} to ${fmtSpan(mx, span)} here`);
   }
+  info.note = notes.join(' · ');
   return obj;
+}
+// Moves a point onto an implicit surface g = 0 (three Newton steps along ∇g); leaves it if that goes wrong.
+function projector(info, defs) {
+  const sc = Object.assign({}, defs), set = scopeSetter(info, false), g = p => { set(sc, p[0], p[1], p[2]); return info.fn(sc); };
+  const cell = 2 * state.L / Q().iso;
+  return p => {
+    let q = p;
+    for (let it = 0; it < 3; it++) {
+      const g0 = g(q), d = 1e-6 * Math.max(1, Math.hypot(...q)), grad = [0, 1, 2].map(k => { const r = q.slice(); r[k] += d; return (g(r) - g0) / d; });
+      const n2 = grad[0] ** 2 + grad[1] ** 2 + grad[2] ** 2;
+      if (!Number.isFinite(g0) || !(n2 > 0)) return p;
+      q = q.map((x, k) => x - g0 * grad[k] / n2);
+    }
+    return Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < cell ? q : p;
+  };
+}
+// f at points of a parametrised set (curve or surface), straight from its parametrisation in full precision.
+function exactValues(info, defs, row, f) {
+  const sc = Object.assign({}, defs), ps = info.params, out = [];
+  const R = ps.map(p => paramRange(row, p, defs, info)), n = ps.length === 1 ? 400 : 40;
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= (ps.length > 1 ? n : 0); j++) {
+    sc[ps[0]] = R[0][0] + (R[0][1] - R[0][0]) * i / n;
+    if (ps.length > 1) sc[ps[1]] = R[1][0] + (R[1][1] - R[1][0]) * j / n;
+    const P = info.vec(sc), x = isArr(P) ? f(P) : NaN;
+    if (Number.isFinite(x) && Math.abs(x) < 1e12) out.push(x);
+  }
+  return out;
+}
+// The shortest number within tol of x (0.25, not 0.2499998; 4, not 3.98771).
+function roundWithin(x, tol) {
+  if (Math.abs(x) <= tol) return 0;
+  for (let p = 1; p <= 15; p++) { const c = +x.toPrecision(p); if (Math.abs(c - x) <= tol) return c; }
+  return x;
+}
+// A value shown with as many decimals as a range of size span needs (998 and 1002, not 998 and 1000).
+function fmtSpan(v, span) {
+  const d = Math.min(12, Math.max(0, -Math.floor(Math.log10(span > 0 ? span / 100 : Math.abs(v) || 1))));
+  return (+v.toFixed(d)).toString().replace('-', '−');
 }
 // Trim a built surface to where a set's inequalities hold (h ≤ 0), cutting triangles cleanly.
 function applyRestrict(obj, info, defs) {
@@ -2108,6 +2170,15 @@ const EXAMPLES = [
   { label: 'Polar coordinates as a map', tex: String.raw`P\left(r,\theta\right)=\left(r\cos\theta,r\sin\theta\right)` },
 ];
 const exSel = document.getElementById('examples');
+// An example that defines a function gets a name nobody uses yet (F, F_2, …), so it never clashes with a line.
+function freeName(tex) {
+  const m = /^([A-Za-z])\\left\(/.exec(tex);
+  if (!m) return tex;
+  const taken = new Set([...USERFN.keys(), ...SETDEFS.keys(), ...Object.keys(MATS), ...Object.keys(state.defs), ...state.rows.map(r => (/^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*[(=]/.exec(r.text) || [])[1])]);
+  let name = m[1];
+  for (let i = 2; taken.has(name); i++) name = `${m[1]}_${i}`;
+  return texName(name) + tex.slice(1);
+}
 EXAMPLES.forEach((e, i) => { const o = document.createElement('option'); o.value = i; o.textContent = e.label; exSel.appendChild(o); });
 
 // ───────────────────────── three.js scene ─────────────────────────
@@ -2165,6 +2236,7 @@ function label(text, color, h, font) {
 function disposeObj(o) {
   o.traverse(c => {
     if (c.geometry) c.geometry.dispose();
+    if (c.isInstancedMesh) c.dispose(); // frees its instance-matrix buffer
     if (c.material) { if (c.material.map) c.material.map.dispose(); lineMats.delete(c.material); c.material.dispose(); }
   });
 }
@@ -2326,13 +2398,24 @@ function buildImplicit(info, defs, color) {
   const { positions, indices, normals } = march(F, M, lo, h, { maxSpan: info.usesAz ? Math.PI : Infinity, at: val });
   return makeSurface(new Float32Array(positions), indices, null, color, normals);
 }
-// Is the crossing found between values fa and fb (signs differ) real? v is the function at the
-// interpolated point: next to a real zero it is smaller than at both ends, at a pole (a sign flip
-// through ∞, like 1/x) it is larger, so a pole is never drawn as a surface or a curve.
-const realCrossing = (v, fa, fb) => !(Math.abs(v) > Math.min(Math.abs(fa), Math.abs(fb)) + 1e-6 * Math.abs(fa - fb));
+// Is a sign change of g along an edge (g(0) = fa, g(1) = fb) a pole, a flip through ∞ like 1/x, rather
+// than a zero? Then it is never drawn as a surface or a curve. Quick test first: next to a zero, g at the
+// linearly interpolated point is no bigger than at the ends. Only when that fails (it also can where the
+// edge grazes the surface) bisect to be sure: around a zero the bracket's values shrink, at a pole they grow.
+// sure: skip the quick test (an end may sit right on the pole, where the quick test can't tell).
+function poleCrossing(g, fa, fb, sure) {
+  if (!sure && !(Math.abs(g(fa / (fa - fb))) > Math.min(Math.abs(fa), Math.abs(fb)))) return false;
+  let a = 0, b = 1, ga = fa, gb = fb;
+  for (let it = 0; it < 20; it++) {
+    const m = (a + b) / 2, gm = g(m);
+    if (!Number.isFinite(gm)) return true;
+    if ((gm < 0) === (ga < 0)) { a = m; ga = gm; } else { b = m; gb = gm; }
+  }
+  return Math.min(Math.abs(ga), Math.abs(gb)) > Math.max(Math.abs(fa), Math.abs(fb)); // grew past both ends: ∞ in between
+}
 // Marching tetrahedra over a sampled grid for the level F = opt.iso; triangles face toward larger F.
 // opt.maxSpan skips tetrahedra whose values spread wider (angle branch cuts); opt.at(x, y, z) is the
-// function itself, used to drop pole crossings (see realCrossing).
+// function itself, used to drop pole crossings (see poleCrossing).
 function march(F, M, lo, h, opt = {}) {
   const maxSpan = opt.maxSpan ?? Infinity, iso = opt.iso || 0, at = opt.at || null;
   const n = M - 1, TOT = M * M * M;
@@ -2349,7 +2432,7 @@ function march(F, M, lo, h, opt = {}) {
     let id = emap.get(key); if (id !== undefined) return id;
     const fa = F[ga] - iso, fb = F[gb] - iso, t = fa / (fa - fb), pa = gp(ga), pb = gp(gb);
     const px = pa[0] + (pb[0] - pa[0]) * t, py = pa[1] + (pb[1] - pa[1]) * t, pz = pa[2] + (pb[2] - pa[2]) * t;
-    if (at && !realCrossing(at(px, py, pz) - iso, fa, fb)) { emap.set(key, -1); return -1; }
+    if (at && poleCrossing(u => at(pa[0] + (pb[0] - pa[0]) * u, pa[1] + (pb[1] - pa[1]) * u, pa[2] + (pb[2] - pa[2]) * u) - iso, fa, fb)) { emap.set(key, -1); return -1; }
     positions.push(px, py, pz);
     const na = grad(ga), nb = grad(gb), nv = [0, 1, 2].map(q => na[q] + (nb[q] - na[q]) * t), len = Math.hypot(...nv);
     if (Number.isFinite(len) && len > 1e-12) normals.push(nv[0] / len, nv[1] / len, nv[2] / len); else normals.push(0, 0, 0);
@@ -2395,7 +2478,7 @@ function march(F, M, lo, h, opt = {}) {
 
 // 2D marching squares on an m×m grid over [a0,a1]²; pushes 3D segment endpoints to out.
 // opt.V: the values already sampled on that grid; opt.iso: the level to trace (default 0);
-// opt.at(u, v): the function itself, so a pole is dropped instead of traced (see realCrossing).
+// opt.at(u, v): the function itself, so a pole is dropped instead of traced (see poleCrossing).
 function contour2D(m, a0, a1, f, to3, out, maxJump = Infinity, opt = {}) {
   const N = m + 1, st = (a1 - a0) / m, iso = opt.iso || 0, at = opt.at || null;
   let V = opt.V;
@@ -2410,7 +2493,8 @@ function contour2D(m, a0, a1, f, to3, out, maxJump = Infinity, opt = {}) {
       const a = e, b = (e + 1) % 4;
       if ((c[a] < 0) === (c[b] < 0) || Math.abs(c[a] - c[b]) > maxJump) continue;
       const t = c[a] / (c[a] - c[b]), u = a0 + (i + cu[a] + (cu[b] - cu[a]) * t) * st, v = a0 + (j + cv[a] + (cv[b] - cv[a]) * t) * st;
-      if (at && !realCrossing(at(u, v) - iso, c[a], c[b])) { pole = true; break; }
+      const at2 = q => at(a0 + (i + cu[a] + (cu[b] - cu[a]) * q) * st, a0 + (j + cv[a] + (cv[b] - cv[a]) * q) * st) - iso;
+      if (at && poleCrossing(at2, c[a], c[b])) { pole = true; break; }
       pts.push(to3(u, v));
     }
     if (pole) continue;
@@ -2620,6 +2704,10 @@ function buildSeq(info, defs, color, row) {
     pts.push([P, n === n0]);
   }
   if (pts.length >= SEQ_DOTS && !info.warn) info.warn = `Showing the first ${SEQ_DOTS.toLocaleString()} separate dots.`;
+  if (!pts.length && line && line.length && !GEN.fly) { // only the joining line is left: keep it if it passes through the box
+    const bb = new THREE.Box3().setFromArray(line), L = GEN.box.L;
+    if (!bb.intersectsBox(new THREE.Box3(new THREE.Vector3(-L, -L, -L), new THREE.Vector3(L, L, L)))) line.length = 0;
+  }
   if (!pts.length && !(line && line.length)) return null;
   const grp = new THREE.Group();
   if (line && line.length) {
@@ -2638,7 +2726,7 @@ function buildSeq(info, defs, color, row) {
 // ───────────────────────── drawing functions ℝⁿ → ℝᵐ ─────────────────────────
 // A function row draws itself in the view its (n, m) allows; the first view listed is the default.
 const FUNC_VIEWS = { '1,1': ['graph'], '1,2': ['curve', 'graph'], '1,3': ['curve'], '2,1': ['graph', 'levels'], '2,2': ['arrows', 'grid'], '2,3': ['surface'], '3,1': ['levels'], '3,2': ['fibers', 'arrows'], '3,3': ['arrows', 'grid'] };
-const viewLabel = (v, n, m) => ({ graph: 'Graph', curve: 'Curve it traces', surface: 'Surface it traces', levels: n === 2 ? 'Level curves' : 'Level surfaces', arrows: m === 2 && n === 3 ? 'Arrows (f₁, f₂, 0)' : 'Arrows (vector field)', grid: 'Grid image (map)', fibers: 'Fibers f = (c₁, c₂)' })[v];
+const viewLabel = (v, n, m, f) => ({ graph: 'Graph', curve: 'Curve it traces', surface: 'Surface it traces', levels: n === 2 ? 'Level curves' : 'Level surfaces', arrows: m === 2 && n === 3 ? `Arrows (${f}₁, ${f}₂, 0)` : 'Arrows (vector field)', grid: 'Grid image (map)', fibers: `Fibers ${f} = (c₁, c₂)` })[v];
 const viewNote = (v, f, n) => ({
   graph: `graph of ${f}`, curve: `the curve ${f} traces`, surface: `the surface ${f} traces`,
   levels: `level ${n === 2 ? 'curves' : 'surfaces'} ${f} = c`, arrows: `an arrow ${f}(p) at each point p`,
@@ -2655,7 +2743,8 @@ const TRIG_FNS = ['sin', 'cos', 'tan', 'sec', 'csc', 'cot'];
 // Default range of an input that has range boxes: a full turn if it is an angle inside a trig function, else the box.
 function funcRangeDefault(U, p) {
   const inTrig = U.node.filter(q => q.type === 'FunctionNode' && TRIG_FNS.includes(q.fn.name) && q.args.some(a => symbolsOf(a).has(p))).length > 0;
-  if (inTrig) return p === names(state.conv).POL ? [0, Math.PI] : [0, 2 * Math.PI];
+  const N = names(state.conv);
+  if (inTrig) return p === N.POL && U.params.includes(N.AZ) ? [0, Math.PI] : [0, 2 * Math.PI]; // the angle down from +z, next to the one around z
   if (p === 'r' || p === 'rho') return [0, state.L];
   return [-state.L, state.L];
 }
@@ -2719,7 +2808,8 @@ function quantiles(vals, ...qs) {
 function niceLevels(vals, target, max, prevStep) {
   const [lo, hi] = quantiles(vals, 0.05, 0.95);
   if (!Number.isFinite(lo)) return { levels: [], step: 0 };
-  if (!(hi - lo > 1e-9 * Math.max(1, Math.abs(lo)))) return { levels: [+lo.toPrecision(6)], step: 0 };
+  // constant: no spread beyond rounding (relative), or below 1e-12 (float noise, like sin²x + cos²x − 1)
+  if (!(hi - lo > Math.max(1e-9 * Math.max(Math.abs(lo), Math.abs(hi)), 1e-12))) return { levels: [roundWithin(lo, Math.max(1e-9 * Math.abs(lo), 1e-12))], step: 0 };
   const count = st => Math.floor(hi / st + 1e-9) - Math.ceil(lo / st - 1e-9) + 1;
   let step = prevStep && count(prevStep) >= Math.max(2, target / 2) && count(prevStep) <= max ? prevStep : 0;
   if (!step) {
@@ -2730,15 +2820,30 @@ function niceLevels(vals, target, max, prevStep) {
   for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi + step * 1e-9 && levels.length < max; k++) levels.push(+(k * step).toPrecision(12));
   return { levels, step };
 }
-// Levels the person typed (comma-separated numbers or expressions in sliders), or null for automatic.
-function typedLevels(text, defs) {
+// Levels the person typed (numbers or expressions in sliders, separated by commas; plain numbers may also be
+// separated by spaces), sorted, or null for automatic. Entries that aren't numbers go into bad.
+function typedLevels(text, defs, bad) {
   if (!text || !String(text).trim() || /^\s*auto\s*$/i.test(text)) return null;
-  return splitTop(String(text), [',', ';']).map(q => evalConst(q, defs)).filter(Number.isFinite);
+  const out = [];
+  for (const piece of splitTop(String(text), [',', ';'])) {
+    const parts = /^\s*[−-]?[\d.]+(\s+[−-]?[\d.]+)+\s*$/.test(piece) ? piece.trim().split(/\s+/) : [piece]; // "1 4 9" is three levels, not 1·4·9
+    for (const q of parts) { if (!q.trim()) continue; const v = evalConst(q, defs); if (Number.isFinite(v)) out.push(v); else if (bad) bad.push(q.trim()); }
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+// The levels a level view draws: typed ones, or automatic ones (a constant function gets a note instead).
+function levelsFor(info, defs, row, vals, target, max, key) {
+  const bad = [], typed = typedLevels(row && row.flevels, defs, bad);
+  if (bad.length) info.warn = `Couldn't read ${bad.map(q => `“${q}”`).join(', ')} as a level.`;
+  if (typed) return typed;
+  const r = niceLevels(vals, target, max, sticky(row, key)); keep(row, key, r.step);
+  if (!r.step && r.levels.length) { info.note = `${greek(info.U.name)} = ${fmtLevel(r.levels[0])} everywhere in the box`; info.quiet = true; return []; }
+  return r.levels;
 }
 // Values a build keeps between rebuilds of the same line (the line's text, view and box unchanged).
 function sticky(row, name) { const v = row && row.viz && row.viz.sig === row.vizSig ? row.viz : null; return v ? v[name] : undefined; }
 function keep(row, name, value) { if (!row) return value; if (!row.viz || row.viz.sig !== row.vizSig) row.viz = { sig: row.vizSig }; row.viz[name] = value; return value; }
-const fmtLevel = v => (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toPrecision(3) : String(+v.toPrecision(6))).replace('-', '−');
+const fmtLevel = v => (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toPrecision(3) : String(+v.toPrecision(6))).replace(/-/g, '−');
 const numOut = o => (typeof o === 'number' ? o : NaN);
 // Translucent surfaces that don't write depth, so nested shells all stay visible.
 function shellPass(geo, color, opacity) {
@@ -2757,8 +2862,7 @@ function buildLevelSurfaces(info, defs, color, row) {
   const inBall = [];
   for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++)
     if (Math.hypot(lo[0] + i * h - box.c[0], lo[1] + j * h - box.c[1], lo[2] + k * h - box.c[2]) <= L) inBall.push(F[i + M * (j + M * k)]);
-  let levels = typedLevels(row && row.flevels, defs);
-  if (!levels) { const r = niceLevels(inBall, 4, 5, sticky(row, 'step')); keep(row, 'step', r.step); levels = r.levels; }
+  const levels = levelsFor(info, defs, row, inBall, 4, 5, 'step');
   const grp = new THREE.Group(), legend = [], K = levels.length, op = K <= 3 ? 0.35 : 0.25, shells = [];
   levels.forEach((c, li) => {
     const rgb = ramp(color, K > 1 ? li / (K - 1) : 0.6), hex = rgbHex(rgb);
@@ -2768,7 +2872,7 @@ function buildLevelSurfaces(info, defs, color, row) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setIndex(indices); setNormals(geo, normals); geo.computeBoundingSphere();
-    shells.push([geo.boundingSphere.radius, ...shellPass(geo, hex, op)]);
+    shells.push([geo.boundingSphere.radius, ...shellPass(geo, hex, op), geo.boundingSphere.center.clone(), geo.boundingSphere.radius]);
     // rings: this level on every 4th z-plane of the samples
     const rings = [], V = new Float64Array(M * M);
     for (let k = 2; k < M; k += 4) {
@@ -2778,11 +2882,10 @@ function buildLevelSurfaces(info, defs, color, row) {
     }
     if (rings.length) { const ln = fatLines(rings, hex, 1.4, GEN.planes); ln.userData.pass = 2; grp.add(ln); }
   });
-  // painter's order inside the group: far sides of the biggest shells first, near sides of the smallest first
-  const byR = [...shells].sort((a, b) => b[0] - a[0]), k = Math.max(1, shells.length);
-  byR.forEach(([, back, front], i) => { back.userData.sub = 0.9 * i / k; front.userData.sub = 0.9 * (k - 1 - i) / k; grp.add(back, front); });
+  // sortSeeThrough orders the levels from the camera each frame (shell = their bounding spheres)
+  for (const [, back, front, c, rad] of shells) { back.userData.shell = front.userData.shell = { c, r: rad }; grp.add(back, front); }
   info.legend = { kind: 'levels', name: info.U.name, items: legend };
-  if (!shells.length) info.note = 'none of these levels is reached inside the box';
+  if (!shells.length && levels.length) info.note = 'none of these levels is reached inside the box';
   return grp;
 }
 // Level curves f = c (ℝ² → ℝ) in the xy-plane.
@@ -2795,8 +2898,7 @@ function buildLevelCurves(info, defs, color, row) {
     V[i * N + j] = Number.isFinite(v) ? v : NaN;
     if (Math.hypot(x, y) <= L) inDisk.push(v);
   }
-  let levels = typedLevels(row && row.flevels, defs);
-  if (!levels) { const r = niceLevels(inDisk, 10, 15, sticky(row, 'step')); keep(row, 'step', r.step); levels = r.levels; }
+  const levels = levelsFor(info, defs, row, inDisk, 10, 15, 'step');
   const grp = new THREE.Group(), legend = [], K = levels.length;
   levels.forEach((c, li) => {
     const hex = rampHex(color, K > 1 ? li / (K - 1) : 0.6), segs = [];
@@ -2805,13 +2907,14 @@ function buildLevelCurves(info, defs, color, row) {
     if (segs.length) grp.add(fatLines(segs, hex, c === 0 ? 2.6 : 1.6, GEN.planes));
   });
   info.legend = { kind: 'levels', name: info.U.name, items: legend };
-  if (!grp.children.length) info.note = 'none of these levels is reached inside the box';
+  if (!grp.children.length && levels.length) info.note = 'none of these levels is reached inside the box';
   return grp;
 }
-// A round scale factor for arrows (1, 2 or 5 × 10ᵏ), rounded down so arrows never start longer than planned.
+// A round scale factor for arrows (1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 × 10ᵏ), rounded down so arrows never
+// start longer than planned but stay close to it.
 function niceFactor(x) {
   const p = Math.pow(10, Math.floor(Math.log10(x))), f = x / p;
-  return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * p;
+  return [8, 6, 5, 4, 3, 2.5, 2, 1.5, 1].find(k => f >= k) * p;
 }
 const UP = new THREE.Vector3(0, 1, 0);
 // Vector field: an arrow f(p), centred on p, at each cell centre of a fixed grid (more arrows only clutter).
@@ -2826,7 +2929,8 @@ function buildArrows(info, defs, color, row) {
   }
   const lens = V.map(v => Math.hypot(...v)), [ref] = quantiles(lens.filter(x => x > 0), 0.85);
   const grp = new THREE.Group();
-  if (!(ref > 0)) { info.note = lens.length ? 'f is zero everywhere in the box' : ''; return grp; }
+  const fname = greek(info.U.name);
+  if (!(ref > 0)) { if (lens.length) { info.note = `${fname} is zero everywhere in the box`; info.quiet = true; } return grp; }
   // typical arrows fill 0.6 of a cell, leaving room to grow: the scale stays put while a slider plays, so
   // arrows visibly grow and shrink, until they'd hit the cap (or shrink below half) and it's chosen afresh
   const auto = 0.6 * cell / ref, prev = sticky(row, 'scale'), scale = keep(row, 'scale', prev && auto / prev > 0.62 && auto / prev < 2 ? prev : niceFactor(auto));
@@ -2847,7 +2951,7 @@ function buildArrows(info, defs, color, row) {
   inst(new THREE.CylinderGeometry(1, 1, 1, 8, 1, false), shafts);
   inst(new THREE.ConeGeometry(1, 1, 12), heads);
   inst(new THREE.SphereGeometry(1, 10, 8), dots.map(p => new THREE.Matrix4().makeScale(0.06 * cell, 0.06 * cell, 0.06 * cell).setPosition(...p)));
-  info.note = (scale === 1 ? 'arrows at true length' : `arrows at ${fmtLevel(scale)}× true length`) + (clamped ? ` · ${clamped} long ones shortened` : '') + (dots.length ? ' · dots where f is about 0' : '');
+  info.note = (scale === 1 ? 'arrows at true length' : `arrows at ${fmtLevel(scale)}× true length`) + (clamped ? ` · ${clamped} long ones shortened` : '') + (dots.length ? ` · dots where ${fname} is about 0` : '');
   return grp;
 }
 // Where a map sends a grid of lines in its domain (the range boxes): each family of lines in its own shade.
@@ -2887,6 +2991,8 @@ function buildFibers(info, defs, color, row) {
   const ball = F => { const a = []; for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) if (Math.hypot(lo[0] + i * h - box.c[0], lo[1] + j * h - box.c[1], lo[2] + k * h - box.c[2]) <= L) a.push(F[i + M * (j + M * k)]); return a; };
   const r1 = niceLevels(ball(F1), 3, 4, sticky(row, 'step1')), r2 = niceLevels(ball(F2), 4, 5, sticky(row, 'step2'));
   keep(row, 'step1', r1.step); keep(row, 'step2', r2.step);
+  const fn = greek(info.U.name), flat = [r1, r2].findIndex(r => !r.step && r.levels.length); // a constant component has no fibers to speak of
+  if (flat >= 0) { info.note = `${fn}${flat ? '₂' : '₁'} = ${fmtLevel([r1, r2][flat].levels[0])} everywhere in the box`; info.quiet = true; return new THREE.Group(); }
   const K = r2.levels.length, segs = r2.levels.map(() => []);
   for (const c1 of r1.levels) {
     const { positions, indices } = march(F1, M, lo, h, { iso: c1, at: (x, y, z) => out(x, y, z)[0] });
@@ -3022,7 +3128,11 @@ function isEquationLike(m, userNames) {
 function isLevelEquation(m, userNames) {
   const params = fdefParams(m);
   if (!params.every(p => COORDS.includes(p))) return false;
-  try { return ![...symbolsOf(parse(rewrite(m[3], userNames).s))].some(n => COORDS.includes(n)); }
+  try {
+    const node = parse(rewrite(m[3], userNames).s);
+    let top = node; while (top.type === 'ParenthesisNode') top = top.content;
+    return top.type !== 'ArrayNode' && ![...symbolsOf(node)].some(n => COORDS.includes(n)); // F(x, y) = (0, 1) is a constant vector, not a level
+  }
   catch (e) { return false; }
 }
 // f(a, b, c) = (3a, 2b, 4c)
@@ -3234,7 +3344,7 @@ function renderExtra(row, info) {
   let sig = info.kind;
   if (info.kind === 'seq') sig += info.v;
   if (info.kind === 'curve' || info.kind === 'psurface') sig += info.params.filter(p => !(info.setRanges && info.setRanges[p])).join('');
-  if (fboxes) sig += `|${info.view}|${info.rangedParams.join(',')}|${info.levelsBox}|${state.L}|${state.conv}`; // placeholders show the box and angle defaults
+  if (fboxes) sig += `|${info.view}|${info.rangedParams.map(p => p + ':' + info.draw.rangeDefault(p).join(':')).join(',')}|${info.levelsBox}`; // placeholders show the defaults
   if (info.mapped) sig += '|map:' + info.mapName;
   if (info.fix) sig += '|fix:' + info.fix.coordSys + (info.fix.refName || '');
   // only a set written out on this line can be converted; a line like B = A just names one
@@ -3389,7 +3499,7 @@ function renderLegend(row, ex) {
     box.append(el('span', 'lg-name', greek(lg.name)), grid);
     const bar = el('div', 'lg-ramp'); bar.style.background = `linear-gradient(90deg, ${lg.stops.join(', ')})`;
     const ends = el('div', 'lg-ends');
-    ends.append(el('span', '', (lg.clampLo ? '≤ ' : '') + fmtLevel(lg.lo)), el('span', '', (lg.clampHi ? '≥ ' : '') + fmtLevel(lg.hi)));
+    ends.append(el('span', '', (lg.clampLo ? '≤ ' : '') + (lg.loText ?? fmtLevel(lg.lo))), el('span', '', (lg.clampHi ? '≥ ' : '') + (lg.hiText ?? fmtLevel(lg.hi))));
     grid.append(bar, ends);
   } else if (lg.items.some(it => typeof it.v === 'string')) { // families of lines
     const items = el('div', 'lg-items');
@@ -3415,10 +3525,10 @@ function renderRow(row) {
   const fv = el.querySelector('.fview'), views = k === 'func' && info.views && info.views.length > 1 ? info.views : null;
   fv.hidden = !views;
   if (views) {
-    const sig = views.join() + info.nIn + info.nOut;
+    const sig = views.join() + info.nIn + info.nOut + info.name;
     if (fv.dataset.sig !== sig) {
       fv.dataset.sig = sig; fv.innerHTML = '';
-      for (const v of views) { const o = document.createElement('option'); o.value = v; o.textContent = viewLabel(v, info.nIn, info.nOut); fv.appendChild(o); }
+      for (const v of views) { const o = document.createElement('option'); o.value = v; o.textContent = viewLabel(v, info.nIn, info.nOut, greek(info.name)); fv.appendChild(o); }
     }
     fv.value = info.view;
   }
@@ -3576,7 +3686,8 @@ function update() {
     if (r.matrix) { r.depSig = ''; continue; }
     const dp = depsOf(r.fdef && USERFN.get(r.fdef.name) ? USERFN.get(r.fdef.name).src || '' : r.text, { sets: new Set(), fns: new Set() });
     if (r.info.free) for (const n of dp.fns) for (const v of USERFN.get(n).free || []) if (!r.info.free.includes(v)) r.info.free.push(v);
-    for (const n of dp.fns) if (!(r.fdef && r.fdef.name === n)) usedFns.add(n);
+    const own = r.fdef ? r.fdef.name : (/^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*=(?!=)/.exec(r.text) || [])[1]; // Q = 2 clashes with Q, it doesn't use it
+    for (const n of dp.fns) if (n !== own) usedFns.add(n);
     r.depSig = JSON.stringify([[...dp.sets].map(n => SETDEFS.get(n).text), [...dp.fns].map(n => [USERFN.get(n).params, USERFN.get(n).src])]);
   }
   // a function used on another line is a helper: not drawn until its dot is clicked
@@ -3627,17 +3738,17 @@ function update() {
       clearFly(r);
       GEN = state.mode === 'fly' ? { box: B(), planes: [], grid: Q().grid, iso: Q().iso, fly: true } : genOrbit();
       r.vizSig = JSON.stringify([r.rw.s, r.depSig, info.view, state.L, state.quality]); // what auto scales and levels may persist across
-      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth, state.dark,
+      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth, (info.kind === 'func' || !!info.paint) && state.dark, // only ramps follow the theme
         info.params && info.params.map(p => r.ranges[p]), info.kind === 'seq' && [r.seqRange, r.seqLine !== false],
         info.kind === 'func' && [info.view, info.rangedParams.map(p => r.franges[p]), info.levelsBox && r.flevels], info.free.map(n => defs[n])]);
       if (key !== r.key) {
         if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; }
-        di.warn = di.note = ''; di.legend = null;
+        di.warn = di.note = ''; di.legend = null; di.quiet = false;
         try { r.obj = buildRowObject(r, di, defs, BUILDERS[di.kind]); } catch (e) { di.warn = "Couldn't draw this."; }
         r.buildWarn = di.warn || ''; r.buildLegend = di.legend || null; r.buildNote = di.note || '';
         if (r.obj) { r.obj.visible = !isHidden(r); scene.add(r.obj); }
         const empty = r.obj && !hasGeometry(r.obj);
-        r.emptyWarn = !r.obj || empty ? 'Nothing to draw inside the current range.' : '';
+        r.emptyWarn = (!r.obj || empty) && !di.quiet ? 'Nothing to draw inside the current range.' : ''; // quiet: the note already says why
         r.key = key;
       }
       if (!info.warn) info.warn = r.buildWarn || r.emptyWarn || '';
@@ -3680,6 +3791,12 @@ function sortSeeThrough() {
   visit(world.group);
   const list = [];
   for (const [g, meshes] of units) {
+    // translucent level surfaces of one function: far sides farthest-first, then near sides farthest-first,
+    // judged from the camera (nested shells and parallel sheets both come out right)
+    if (meshes.some(m => m.userData.shell)) for (const pass of [0, 1]) {
+      const ls = meshes.filter(m => m.userData.shell && m.userData.pass === pass).map(m => [camera.position.distanceTo(m.userData.shell.c) + (pass ? -1 : 1) * m.userData.shell.r, m]);
+      ls.sort((a, b) => b[0] - a[0]).forEach(([, m], i) => { m.userData.sub = 0.9 * i / ls.length; });
+    }
     if (!g.userData.center) { _box.setFromObject(g); g.userData.center = _box.isEmpty() ? new THREE.Vector3() : _box.getBoundingSphere(_sph).center.clone(); }
     list.push([camera.position.distanceToSquared(g.userData.center), meshes]);
   }
@@ -3797,9 +3914,9 @@ rowsEl.addEventListener('click', e => {
 exSel.addEventListener('change', () => {
   const ex = EXAMPLES[+exSel.value]; exSel.value = '';
   if (!ex) return;
-  const blank = state.rows.find(r => !r.text.trim());
-  if (blank) { setRowLatex(blank, ex.tex); blank.ranges = Object.assign({ t: ['0', '2π'], u: ['0', '2π'], v: ['0', 'π'] }, ex.ranges || {}); Object.assign(blank, { franges: {}, flevels: '', fview: null, touched: false }); blank.extraSig = ''; schedule(0); }
-  else addRow(ex.tex, { ranges: ex.ranges });
+  const blank = state.rows.find(r => !r.text.trim()), tex = freeName(ex.tex);
+  if (blank) { setRowLatex(blank, tex); blank.ranges = Object.assign({ t: ['0', '2π'], u: ['0', '2π'], v: ['0', 'π'] }, ex.ranges || {}); Object.assign(blank, { franges: {}, flevels: '', fview: null, touched: false }); blank.extraSig = ''; schedule(0); }
+  else addRow(tex, { ranges: ex.ranges });
 });
 document.getElementById('keys').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
 document.getElementById('keys').addEventListener('click', e => {

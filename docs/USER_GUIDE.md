@@ -378,8 +378,8 @@ A function line draws itself. What you see depends on how many numbers go in (n)
 | ℝ³ → ℝ³, `F(x, y, z) = (−y, x, z/2)` | arrows | Grid image |
 
 - **Picking a view:** when there's a choice, a menu next to the chip switches between them. For ℝ² → ℝ² and ℝ³ → ℝ³ the default is arrows when the inputs are the coordinates themselves, like `F(x, y)`, and the grid image when they aren't, like the polar map `P(r, θ) = (r cos θ, r sin θ)`, whose grid image is circles and rays.
-- **Domains:** graphs, arrows and level sets cover the graph box. Curves, surfaces and grid images have range boxes for each input. Left blank, an input used inside sin or cos runs over a full turn, 0 to 2π (0 to π for the angle down from +z), an `r` or `ρ` runs from 0 to the box edge, and anything else spans the box. The greyed text shows the default. Sliders work in these boxes.
-- **Levels:** level curves and level surfaces pick round values across the function's range. Their legend shows each level's colour, from light (low) to dark (high), flipped in dark mode. Type your own in the **levels** box, like `-1, 0, 1` or `0, c` with a slider c.
+- **Domains:** graphs, arrows and level sets cover the graph box. Curves, surfaces and grid images have range boxes for each input. Left blank, an input used inside sin or cos runs over a full turn, 0 to 2π (0 to π for the angle down from +z when the angle around z is an input too), an `r` or `ρ` runs from 0 to the box edge, and anything else spans the box. The greyed text shows the default. Sliders work in these boxes.
+- **Levels:** level curves and level surfaces pick round values across the function's range. Their legend shows each level's colour, from light (low) to dark (high), flipped in dark mode. Type your own in the **levels** box, like `-1, 0, 1`, `1 4 9` or `0, c` with a slider c. A function that's constant in the box says so instead.
 - **Arrows** keep their length scale while a slider moves, so you can watch the field grow and shrink. The note says the scale, for example *arrows at 0.05× true length*, and how many very long arrows were shortened to fit. Where the field is about zero there's a dot.
 - **Helpers start hidden.** A function that another line uses, like `f` in `f(A)`, isn't drawn at first: its dot is hollow and a note says so. Click the dot to draw it.
 - Poles are never drawn as surfaces: for `1/(1 − x² − y² − z²)` the level surfaces stop short of the unit sphere instead of drawing a fake sheet on it.
@@ -414,10 +414,12 @@ k({(x, y, z) : x² + y² + z² = 4})       the sphere, coloured by k
 ```
 
 - **On a set in the plane** you get the graph of the function over the set: each point (x, y) is lifted to height m(x, y). **Show both** keeps the flat set too.
-- **On a set in space** the set keeps its shape and is coloured by the value: light for low values, dark for high (the other way round in dark mode), with thin lines at round values. A legend shows the range. When a few far-out values would squash the colours, they stop at the 2nd and 98th percentiles (≤ and ≥ in the legend) and the note gives the full range. For a solid, the colour shows the values on its surface.
+- **On a set in space** the set keeps its shape and is coloured by the value: light for low values, dark for high (the other way round in dark mode), with thin lines at round values. A legend shows the range. When a few far-out values would squash the colours, they stop at the 5th and 95th percentiles (≤ and ≥ in the legend) and the note gives the full range. For a solid, the colour shows the values on its surface.
 - If the function is the same all over the set, the whole set gets one colour and the note gives the value, like *q ≈ 4 all over this set* for x² + y² + z² on the sphere of radius 2.
-- If the function blows up on the set, for example `1/(1 − x² − y² − z²)` on the unit sphere, where it divides by zero, the set isn't coloured and the line says why.
-- A function that gives a number has to be the last one applied: `g(k(S))` says so.
+- Where the function isn't defined, like √z below the xy-plane, the set is grey.
+- If it divides by zero along part of the set, like `1/z` on a sphere, the colours stop at the 5th and 95th percentiles and the note says it's unbounded there.
+- If it blows up all over the set, for example `1/(1 − x² − y² − z²)` on the unit sphere, where it divides by zero everywhere, the set isn't coloured and the line says why. The same happens when it changes too fast for the drawn mesh, like `sin(10x)` on a big sphere, and the message suggests raising **Resolution**.
+- On a set in space, a function that gives a number has to be the last one applied: `g(k(S))` says so. A graph over a planar set is an ordinary surface in space, so it can be mapped further, like `g(m(D))`.
 
 ### Naming sets
 
@@ -597,7 +599,8 @@ Any other name, like `a`, `k`, `N`, `a_1` or `λ`, can be a slider, constant, ma
 | ***Mixed coordinates need an equation.*** | When mixing Cartesian and polar variables, write `… = …`. |
 | ***… is defined twice.*** | Rename or delete one of the definitions. |
 | ***A set can have one equation…*** | Keep one equation and trim it with inequalities. |
-| ***f blows up or jumps on this set…*** | The function divides by zero (or jumps) on the set, so colouring the set by it wouldn't mean anything. Try a set that avoids the problem, or draw the function's own level surfaces. |
+| ***f blows up on this set…*** | The function divides by zero all over the set, so colouring the set by it wouldn't mean anything. Try a set that avoids the problem, or draw the function's own level surfaces. |
+| ***f changes too fast for the mesh here…*** | Raise **Resolution**, or look at a smaller set. |
 | A function line isn't drawn and its dot is hollow | Another line uses it, so it starts hidden. Click the dot to draw it. |
 | Edges look bumpy or jagged | Raise **Resolution**. |
 | The app feels slow (low FPS) | Lower **Resolution**, hide graphs you don't need with their dots, or lower the render distance in fly mode. |
