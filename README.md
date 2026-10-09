@@ -11,6 +11,7 @@ A Desmos-style 3D graphing calculator, built for topology and multivariable calc
 - **Surfaces, curves and points:** explicit, implicit and parametric (`t` for a curve, `u, v` for a surface).
 - **Inequalities as solids,** drawn see-through with solid border lines, e.g. `ρ ≤ 2, φ ≤ π/6`.
 - **Set-builder notation** in 3D and in the plane: `{(x, y, z) : x² + y² + z² = 1, z ≥ 0}`, `{(r, θ) : r ≤ 1 + cos θ}`. Convert a set between coordinate systems with one click.
+- **Unions and intersections:** `A ∪ B`, `A ∩ B`, `(A ∪ B) ∩ C`. Solids join exactly into one solid, a solid trims whatever it's intersected with, two surfaces meet in a curve, and a curve meets a surface (or, in the plane, another curve) in points.
 - **Matrices.** Type `A = Matrix` to get an editable matrix you can resize by dragging its corner. Apply it to vectors and to whole sets: `A{…}`, with a **Show both** before/after view.
 - **Graph any function ℝⁿ → ℝᵐ (n, m ≤ 3).** `q(x) = x²` draws its graph, `g(t) = (cos t, sin t, t)` the curve it traces, `m(x, y) = x² − y²` a surface or level curves, `f(x, y, z) = x² + y² + z²` level surfaces, `F(x, y) = (−y, x)` a vector field or the image of a grid, and `p(x, y, z) = (x² + y², z)` its fibers.
 - **Functions on sets.** Define `f(a, b, c) = (3a, 2b, 4c)`, then draw `f({(a, b, c) : …})` or `f(A)`. Input and output dimensions (ℝⁿ → ℝᵐ) are detected and checked. A function that gives a number draws its graph over a set in the plane, or colours a set in space by its value.

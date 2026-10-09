@@ -46,7 +46,7 @@ CommunityGrapher3D is a 3D graphing calculator that reads math the way you write
 | Part | What it does |
 |---|---|
 | **CommunityGrapher3D** title and **«** | **«** hides the sidebar so the graph fills the window. Bring it back with **» Expressions** at the top left of the graph. The app remembers your choice in this browser. |
-| **Keypad** | Buttons that insert symbols into the line you're editing: ρ θ φ π, √, a⁄b (fraction), ≤ ≥, xⁿ (exponent), x² (squared), ( ), { } (set braces) and ∈. |
+| **Keypad** | Buttons that insert symbols into the line you're editing: ρ θ φ π, √, a⁄b (fraction), ≤ ≥, xⁿ (exponent), x² (squared), ( ), { } (set braces), ∈, ∪ (union) and ∩ (intersection). |
 | **Expression list** | One math line per row. Each row has a coloured dot, the line itself and a **×** to delete it. Under the line you may see a coloured *chip* that says what the line was read as, a *reads as* note, sliders, range boxes and buttons. |
 | **Click empty space to add an expression** | Click anywhere in the empty area below your lines to add a new line. If the last line is already empty, it's reused. |
 | **Add an example…** | A menu of ready-made graphs to add. |
@@ -295,6 +295,42 @@ Put a parametrised point before the colon, and give each parameter's range after
 {(u cos v, u sin v, u) : 0 ≤ u ≤ 2, 0 ≤ v ≤ 2π}
 ```
 
+### Unions and intersections
+
+Join sets with **∪** and **∩**. Use the keypad, or type `cup` or `cap`. The sides can be sets written out, names of sets, or plain graphs:
+
+```
+A = {(x, y, z) : x² + y² + z² ≤ 4}
+B = {(x, y, z) : z ≥ 0}
+A ∩ B                                  the upper half of the ball
+A ∪ B                                  the ball and the half-space, as one solid
+{(x, y, z) : x² + y² + z² = 4} ∩ {(x, y, z) : z = 1}      a circle
+z = 0 ∩ x = 0                          the y-axis: plain graphs work too
+(1, 0, 0) ∩ A                          the point, if it's in A
+```
+
+∩ binds tighter than ∪, so `A ∪ B ∩ C` means `A ∪ (B ∩ C)`. Use brackets to group, like `(A ∪ B) ∩ C`.
+
+What you get depends on what meets what:
+
+| Sets | Drawn as |
+|---|---|
+| solid ∩ solid, solid ∪ solid | one solid, with no walls inside it (the same for regions of the plane) |
+| anything ∩ a solid | the part inside the solid: a trimmed surface, a piece of a curve, … |
+| surface ∩ surface | the curve where they meet |
+| curve ∩ surface | the points where they meet, with a count in the note |
+| curve ∩ curve, in the plane | the points where they meet |
+| point ∩ anything | the point, if it's in the set, otherwise nothing and a note |
+| anything else joined by ∪ | each piece drawn as it is, in the line's colour |
+
+- To find where two surfaces meet, at least one has to be given by an equation, like `z = x²` or `x² + y² + z² = 4`. The other can be anything, even a parametric surface. A curve has to meet a surface given by an equation. In the plane, one of two curves needs an equation.
+- If two surfaces are the same, or a curve lies on a surface, you get the surface or the curve itself, and the note says so.
+- Points where a curve only touches a surface, without crossing it, are found too. The note counts the points inside the graph box and says how many are outside it.
+- A set in the plane can't be joined to a set in space. Write both with (x, y, z), or both with (x, y).
+- Two curves in space can't be intersected yet. A solid moved by a function or a matrix can be joined with ∪, but not intersected.
+- Functions work on the result: `f(A ∪ B)` draws f(A) and f(B), and `f(A ∩ B)` trims first, then maps. A function that gives a number colours the result, like `k(A ∩ B)`.
+- Names can be used before the line that defines them: `C = A ∪ B` can come first.
+
 ### Converting between coordinate systems
 
 Sets written in coordinates have **Convert to** buttons, e.g. **Convert to Cartesian | Cylindrical** for a spherical set. Clicking one adds a new line with the same set in the other system, simplified where possible:
@@ -434,7 +470,7 @@ h(f(A))           and functions can be chained
 
 A named set is also drawn on its own line, and you can hide it with its dot.
 
-Applying a function works with surfaces, solids, planar regions and curves, and with parametric sets. **Show both** draws the original set next to its image.
+Applying a function works with surfaces, solids, planar regions and curves, with parametric sets, and with unions and intersections of sets (see [Unions and intersections](#unions-and-intersections)). **Show both** draws the original set next to its image.
 
 ### Checks: dimensions and coordinate systems
 
@@ -571,7 +607,7 @@ The app follows your system's light or dark mode.
 
 ### Operators
 
-`+ − × ÷`, `^` for powers, implied multiplication, `!` for factorials, `mod` for remainders, `|…|` for absolute value, `= < > ≤ ≥`.
+`+ − × ÷`, `^` for powers, implied multiplication, `!` for factorials, `mod` for remainders, `|…|` for absolute value, `= < > ≤ ≥`, and `∪ ∩` between sets.
 
 ### Reserved names
 
@@ -598,7 +634,11 @@ Any other name, like `a`, `k`, `N`, `a_1` or `λ`, can be a slider, constant, ma
 | ***Add an = sign so I know what to solve for.*** | The expression contains the coordinate it would be solved for. Write it as an equation. |
 | ***Mixed coordinates need an equation.*** | When mixing Cartesian and polar variables, write `… = …`. |
 | ***… is defined twice.*** | Rename or delete one of the definitions. |
-| ***A set can have one equation…*** | Keep one equation and trim it with inequalities. |
+| ***A set can have one equation…*** | Keep one equation and trim it with inequalities. Or intersect two sets: `{…: x² + y² + z² = 4} ∩ {…: z = 1}`. |
+| ***To find where two surfaces meet, one of them has to be given by an equation…*** | Write one of the surfaces as an equation, like `z = …`, instead of as a parametrisation. |
+| ***B isn't a set yet…*** | Define `B` on another line, like `B = {(x, y, z) : …}`. |
+| ***… is a set in the plane and … is in space…*** | Write both sets with (x, y, z), or both with (x, y). |
+| ***they don't meet*** (in the note) | The sets don't meet inside the graph box. Try a larger **Scale**. |
 | ***f blows up on this set…*** | The function divides by zero all over the set, so colouring the set by it wouldn't mean anything. Try a set that avoids the problem, or draw the function's own level surfaces. |
 | ***f changes too fast for the mesh here…*** | Raise **Resolution**, or look at a smaller set. |
 | A function line isn't drawn and its dot is hollow | Another line uses it, so it starts hidden. Click the dot to draw it. |
