@@ -1501,7 +1501,7 @@ function buildPlane2D(info, defs, color) {
     fill.userData.pass = 1; fill.userData.fill = true; grp.add(fill);
   }
   const rim = [];
-  contour2D(m, -Lb, Lb, G, to3, rim);
+  contour2D(m, -Lb, Lb, (x, y) => { const v = G(x, y); return v === 0 ? -1e-300 : v; }, to3, rim); // on the boundary counts as inside, as for the fill (no line down the seam of A ∪ B)
   for (const fx of [t => [t, -Lb], t => [t, Lb], t => [-Lb, t], t => [Lb, t]]) {
     let t0 = -Lb, g0 = G(...fx(t0));
     for (let k = 1; k <= m; k++) {
@@ -1701,7 +1701,7 @@ function parseSetExpr(t) {
     const parts = splitTop(t, [op]);
     if (parts.length > 1) return parts.map(p => parseSetExpr(p) || { k: 'bad', text: p.trim(), op }).reduce((a, b) => ({ k: 'op', op, a, b }));
   }
-  if (t[0] === '(' && closeOf(t, 0) === t.length - 1) { const e = parseSetExpr(t.slice(1, -1)); if (e) return e; }
+  if ((t[0] === '(' || t[0] === '[') && closeOf(t, 0) === t.length - 1) { const e = parseSetExpr(t.slice(1, -1)); if (e) return e; }
   if (isSetText(t)) return { k: 'lit', text: t };
   const ms = splitMappedSet(t); if (ms) return { k: 'mat', ms };
   const nm = t.replace(/\s+/g, '');
@@ -1725,6 +1725,7 @@ function analyzeSetExpr(row, e, userNames, seen) {
       if (info.kind === 'error') return err(`${greek(e.name)} has a problem: ${info.msg}`);
       if (!info.srcName) { info.srcName = e.name; if (d.expr.k === 'lit') info.setRow = d.row; }
       info.refName = e.name; // the name as written on this line
+      if (info.kind === 'curve' || info.kind === 'psurface') info.refRanges = d.row.ranges; // its own line's range boxes
       return info;
     }
     case 'nofn': return err(`${greek(e.fn)} isn't a function yet — define it on another line, like ${e.fn}(x, y, z) = (…, …, …).`);
@@ -1748,7 +1749,7 @@ function analyzeOperand(e, userNames) {
   if (/^[A-Za-z]+(?:_[A-Za-z0-9]+)?$/.test(nm) && !COORDS.includes(nm) && !(nm in CONSTS) && !PARAMS.includes(nm)) {
     if (USERFN.has(nm)) return err(`${greek(nm)} is a function, not a set — apply it to a set, like ${greek(nm)}(A).`);
     if (MATS[nm]) return err(`${greek(nm)} is a matrix, not a set — put it in front of a set to move it, like ${greek(nm)}{(x, y, z) : …}.`);
-    if (userNames.has(nm)) return err(`${greek(nm)} is a number, not a set.`);
+    if (userNames.has(nm)) return err(`${greek(nm)} is defined on another line, but not as a set — a set is written like ${greek(nm)} = {(x, y, z) : …}.`);
     return err(`${greek(nm)} isn't a set yet — define it on another line, like ${greek(nm)} = {(x, y, z) : …}.`);
   }
   const rw = rewrite(t, userNames), info = analyze({ override: 'auto' }, rw);
@@ -1774,10 +1775,12 @@ function applyFunc(fname, info) {
     });
   }
   const ps = U.params, f = greek(fname);
-  if (nOut === 1 && d === 3 && (info.kind === 'xcurve' || info.kind === 'xpoints'))
-    return err(`${sig} can colour surfaces and solids, but ${what} is ${info.kind === 'xcurve' ? 'a curve' : 'a set of points'} — colour one of the sets it comes from instead.`);
+  const traced = X => (X.kind === 'xcurve' || X.kind === 'xpoints' ? X : (X.members || []).map(traced).find(Boolean));
+  if (nOut === 1 && d === 3 && traced(info))
+    return err(`${sig} can colour surfaces, solids and curves, but ${info.kind === 'setgroup' ? `part of ${what}` : what} is ${traced(info).kind === 'xcurve' ? 'a curve where two surfaces meet' : 'a set of points where sets meet'} — colour the sets it comes from instead.`);
   if (nOut === 1 && d === 3) { // a number at each point of a set in space: paint the set with it
     info.paint = { name: fname, f: (s, P) => { const s2 = Object.create(s); for (let i = 0; i < 3; i++) s2[ps[i]] = P[i]; return numOut(U.fn(s2)); } };
+    if (info.refName) info.refName = `${fname}(${info.refName})`;
     info.free = [...new Set([...(info.free || []), ...U.free])];
     info.reads = `${f} shown as colour on ${info.reads}`;
     info.notes = (info.notes || []).concat([sig, `colour = the value of ${f}${info.kind === 'region' ? ' on the surface of the solid' : ''}`]);
@@ -1809,7 +1812,8 @@ function applyFunc(fname, info) {
     info.notes = (info.notes || []).concat([sig, `height = the value of ${f}`]);
     if (info.form) info.form = `graph of ${f} over a ${info.form}`;
   }
-  if (info.vec && (info.kind === 'point' || !info.cuts)) { // curves, parametric surfaces and points map exactly
+  if (info.refName && nOut !== 1) info.refName = `${fname}(${info.refName})`;
+  if (info.vec && (info.kind !== 'psurface' || !info.cuts)) { // curves, parametric surfaces and points map exactly (their trims are made on the parameter)
     if (!info.vec0) info.vec0 = info.vec;
     const prev = info.vec; info.vec = s => { const P = prev(s); return isArr(P) ? F(s, P) : P; };
   } else info.fmaps = (info.fmaps || []).concat([{ F, dIn: d }]);
@@ -1916,13 +1920,23 @@ function combineSets(op, A, B) {
   }
   const out = op === '∪' ? unionOf(A, B) : intersectionOf(A, B);
   if (out.kind === 'error') return out;
-  const part = X => (X.refName ? greek(X.refName) : X.combo ? `(${X.reads})` : condSet(X) && X.litText ? `{${X.reads}}` : X.reads);
+  const part = X => (X.refName ? greek(X.refName) : X.combo || X.mapped || X.paint ? `(${X.reads})` : condSet(X) && X.litText ? `{${X.reads}}` : X.reads);
   out.reads = `${part(A)} ${op} ${part(B)}`;
   out.refName = A.refName && B.refName ? `${A.refName} ${op} ${B.refName}` : null;
   out.free = [...new Set([...(A.free || []), ...(B.free || [])])];
   out.rwNotes = [...new Set([...(A.rwNotes || []), ...(B.rwNotes || [])])];
   out.combo = op;
   for (const k of ['coordSys', 'coordNames', 'litText', 'setRow', 'srcName', 'fix']) delete out[k]; // no Convert: it's a new set
+  if (out.kind !== 'curve' && out.kind !== 'psurface') { // curves and surfaces inside this line get no range boxes on it
+    const dflt = [];
+    const walk = X => {
+      if ((X.kind === 'curve' || X.kind === 'psurface') && !X.ranges) { X.ranges = X.refRanges || {}; if (!X.refRanges) dflt.push(...X.params.filter(p => !(X.setRanges && X.setRanges[p]))); }
+      for (const Y of [X.curve, X.mesh, X.zero, ...(X.members || [])]) if (Y) walk(Y);
+    };
+    walk(out);
+    const rng = { t: '0 to 2π', u: '0 to 2π', v: '0 to π' };
+    for (const p of new Set(dflt)) out.notes = (out.notes || []).concat([`${p} runs from ${rng[p]} here — write the curve as {(…) : ${p} ∈ [a, b]} to choose`]);
+  }
   return out;
 }
 function unionOf(A, B) {
@@ -1934,8 +1948,9 @@ function unionOf(A, B) {
   }
   if (members.length === 1) return members[0];
   for (const m of members) for (const k of ['coordSys', 'coordNames', 'fix']) delete m[k]; // f(A ∪ B) maps points, whatever A was written in
-  const mm = members.find(m => m.mapped);
-  return { kind: 'setgroup', members, dim2: !!A.dim2, mapped: !!mm, mapName: mm && mm.mapName, notes: [`${members.length} pieces`], free: [] };
+  const mm = members.find(m => m.mapped), notes = [`${members.length} pieces`];
+  if (members.some(m => plainSolid(m) && m.paint) && members.filter(plainSolid).length > 1) notes.push('a coloured solid is drawn as its own piece, so walls inside the union show');
+  return { kind: 'setgroup', members, dim2: !!A.dim2, mapped: !!mm, mapName: mm && mm.mapName, notes, free: [] };
 }
 function intersectionOf(A, B) {
   for (const [G, Y] of [[A, B], [B, A]]) if (G.kind === 'setgroup') { // (A ∪ B) ∩ C = (A ∩ C) ∪ (B ∩ C)
@@ -1956,7 +1971,7 @@ function intersectionOf(A, B) {
   const planar = !!A.dim2;
   const twoColours = P => err(`Both sets are coloured by a function — intersect them first, then colour the result, like ${greek(P.name)}(A ∩ B).`);
   for (const [X, S] of [[A, B], [B, A]]) if (plainSolid(S)) {
-    if (isFull(X) && !planar) return err(`${capFirst(setLabel(X))} is a solid moved by ${X.mapName ? greek(X.mapName) : 'a function'} — it can be joined to other sets with ∪, but only solids as written can be intersected.`);
+    if (isFull(X) && !planar) return movedSolid(X);
     if (X.paint && S.paint) return twoColours(X.paint);
     const out = cutCopy(X, S, defs => solidAt(S, defs), `only the part inside ${setLabel(S)}`);
     if (S.paint) { out.paint = S.paint; out.notes = out.notes.concat(S.notes.filter(q => q.startsWith('colour'))); } // the part of a coloured solid keeps its colours
@@ -1974,34 +1989,34 @@ function intersectionOf(A, B) {
     const [M, Z] = hasZero(A) && hasZero(B) ? (fine(A) <= fine(B) ? [A, B] : [B, A]) : hasZero(B) ? [A, B] : hasZero(A) ? [B, A] : [];
     if (!Z) return err(`To find where two surfaces meet, one of them has to be given by an equation, like z = x² or x² + y² + z² = 4 — ${A.refName && B.refName ? `${greek(A.refName)} and ${greek(B.refName)} are` : 'these are'} both parametric or moved.`);
     if (painted) return noColour('a curve');
-    return { kind: 'xcurve', mesh: M, zero: Z, notes: ['the curve where the two surfaces meet'], free: [] };
+    return { kind: 'xcurve', mesh: M, zero: Z, notes: ['where the two surfaces meet'], free: [] };
   }
   if ((!planar && Math.min(sa, sb) === 1 && Math.max(sa, sb) === 2) || (planar && sa === 1 && sb === 1)) { // a curve and a surface (or two curves in the plane): points
     let [C, Z] = planar ? (hasZero(B) ? [A, B] : hasZero(A) ? [B, A] : []) : sa === 1 ? [A, B] : [B, A];
     if (Z && !hasZero(Z)) Z = null;
     if (!Z) return err(planar ? 'To find where two curves in the plane meet, one of them has to be given by an equation, like {(x, y) : y = x²}.'
       : 'To find where a curve meets a surface, the surface has to be given by an equation, like z = 0 or x² + y² + z² = 4.');
-    if (C.kind === 'curve' && C.fmaps) return err(`Can't find where ${setLabel(C)} meets ${setLabel(Z)} yet — it was moved after being trimmed.`);
     if (painted) return noColour('points');
-    return { kind: 'xpoints', curve: C, zero: Z, dim2: planar, notes: [`where the curve meets the ${planar ? 'other curve' : 'surface'}`], free: [] };
+    return { kind: 'xpoints', curve: C, zero: Z, dim2: planar, planar, notes: [`where the curve meets the ${planar ? 'other curve' : 'surface'}`], free: [] };
   }
   if (!planar && sa === 1 && sb === 1) return err("Two curves in space can't be intersected yet — intersect a curve with a surface or a solid instead.");
-  for (const X of [A, B]) if (isFull(X) && !planar) return err(`${capFirst(setLabel(X))} is a solid moved by ${X.mapName ? greek(X.mapName) : 'a function'} — it can be joined to other sets with ∪, but only solids as written can be intersected.`);
+  for (const X of [A, B]) if (isFull(X) && !planar) return movedSolid(X);
   return err(`Can't intersect ${setLabel(A)} with ${setLabel(B)} yet.`);
 }
+const movedSolid = X => err(`${X.refName ? `${greek(X.refName)} is a solid` : 'This solid is'} moved by ${X.mapName ? greek(X.mapName) : 'a function'} — it can be joined to other sets with ∪, but only solids as written can be intersected.`);
 // X ∩ Y drawn as X trimmed to Y. The trim happens at this point of X's maps: f(X ∩ S) trims X, then maps it.
 function cutCopy(X, Y, at, note) {
-  const cut = { at, stage: (X.fmaps || []).length, pre: !X.mapped, vec: X.vec, what: setLabel(Y) };
+  const cut = { at, stage: (X.fmaps || []).length, pre: !X.mapped, vec: X.vec, what: setLabel(Y), rim: !!X.dim2 }; // rim: a cut region of the plane gets a border
   return Object.assign({}, X, { cuts: (X.cuts || []).concat([cut]), notes: (X.notes || []).concat([note]), form: X.form && `${X.form}, trimmed` });
 }
 function mergeSolids(op, A, B) {
   if (A.paint && B.paint) return err(`Both sets are coloured by a function — intersect them first, then colour the result, like ${greek(A.paint.name)}(A ∩ B).`);
   const word = op === 'max' ? 'intersection' : 'union';
   if (A.dim2) {
-    const fa = A.fn, fb = B.fn; // NaN is outside: outside either for ∩, ignored for ∪
-    const fn = op === 'max' ? s => { const a = fa(s), b = fb(s); return Number.isNaN(a) || Number.isNaN(b) ? NaN : Math.max(a, b); }
-      : s => { const a = fa(s), b = fb(s); return Number.isNaN(a) ? b : Number.isNaN(b) ? a : Math.min(a, b); };
-    return { kind: 'plane2d', dim2: true, fn, form: `${word} of regions`, notes: [], free: [] };
+    const fin = v => (Number.isFinite(v) ? v : NaN), fa = s => fin(A.fn(s)), fb = s => fin(B.fn(s)); // undefined (or ±∞) is outside:
+    const fn = op === 'max' ? s => { const a = fa(s), b = fb(s); return Number.isNaN(a) || Number.isNaN(b) ? NaN : Math.max(a, b); } // outside either for ∩,
+      : s => { const a = fa(s), b = fb(s); return Number.isNaN(a) ? b : Number.isNaN(b) ? a : Math.min(a, b); }; // ignored for ∪
+    return { kind: 'plane2d', dim2: true, fn, form: `${word} of regions`, notes: [op === 'max' ? 'the part the regions share' : 'joined into one region'], free: [] };
   }
   const a = solidTree(A), b = solidTree(B), off = a.atoms.length;
   const shift = n => (n.i !== undefined ? { i: n.i + off } : { op: n.op, kids: n.kids.map(shift) });
@@ -2009,7 +2024,8 @@ function mergeSolids(op, A, B) {
   const kids = [one(a.tree), one(shift(b.tree))].flatMap(n => (n.op === op ? n.kids : [n]));
   const atoms = a.atoms.concat(b.atoms), syss = new Set(atoms.map(t => t.sys)), tree = { op, kids };
   const P = A.paint ? A : B.paint ? B : null;
-  return { kind: 'region', sys: syss.size === 1 ? atoms[0].sys : 'mixed', atoms, tree, fn: solidFn(atoms, tree), form: `${word} of solids`, paint: P && P.paint, notes: P ? P.notes.slice() : [], free: [] };
+  return { kind: 'region', sys: syss.size === 1 ? atoms[0].sys : 'mixed', atoms, tree, fn: solidFn(atoms, tree), form: `${word} of solids${P ? `, coloured by ${greek(P.paint.name)}` : ''}`,
+    paint: P && P.paint, notes: [op === 'max' ? 'the part the solids share' : 'joined into one solid'].concat(P ? P.notes.filter(q => q.startsWith('colour') || q.includes('→')) : []), free: [] };
 }
 // A solid as conditions ("atoms", each g ≤ 0 in its own coordinates) and the tree joining them.
 function solidTree(X) {
@@ -2060,6 +2076,14 @@ function zeroAt(X, defs) {
   if (X.kind === 'plane2d') return (x, y) => { setPlane(s, x, y); return X.eq(s); };
   if (X.kind === 'implicit') { const set = scopeSetter(X, false); return (x, y, z) => { set(s, x, y, z); return X.fn(s); }; }
   const set = scopeSetter(X, true), dn = namesFor(X.map, X.dep)[0], TAU = 2 * Math.PI; // explicit: dep − f(…)
+  if (X.dep === 'R' || X.dep === 'P') { // r = f is drawn at −f the other way round where f < 0 (r = z is a double cone): either branch
+    const s2 = Object.assign({}, defs), sph = X.dep === 'P';
+    return (x, y, z) => {
+      set(s, x, y, z); set(s2, -x, -y, sph ? -z : z);
+      const g1 = s[dn] - X.fn(s), g2 = s[dn] + X.fn(s2);
+      return Number.isFinite(g2) ? g1 * g2 : g1;
+    };
+  }
   return (x, y, z) => { set(s, x, y, z); const d = s[dn] - X.fn(s); return X.dep === 'A' ? d - TAU * Math.round(d / TAU) : d; };
 }
 // The rest of what a set given by an equation asks for (its inequalities, what it was trimmed to): ≤ 0 where it holds.
@@ -2105,7 +2129,8 @@ function realZero(g, fa, fb, iters) {
     if (gm === 0) return m;
     if ((gm < 0) === (ga < 0)) { a = m; ga = gm; } else { b = m; gb = gm; }
   }
-  if (Math.min(Math.abs(ga), Math.abs(gb)) > 1e-3 * Math.max(Math.abs(fa), Math.abs(fb))) return -1;
+  const left = Math.min(Math.abs(ga), Math.abs(gb)); // a jump or a pole keeps about the smaller end's size; a root, even ∛, shrinks
+  if (left > 1e-3 * Math.max(Math.abs(fa), Math.abs(fb)) && left > 0.5 * Math.min(Math.abs(fa), Math.abs(fb))) return -1;
   return a + (b - a) * ga / (ga - gb);
 }
 // A point of the plane where f1 = f2 = 0, from P: Newton's method, as least squares so it still creeps in
@@ -2182,6 +2207,7 @@ function trimBy(obj, h, rim) {
 // Apply a set's trims that belong at this point of its maps. A point is kept or dropped whole.
 function applyCuts(obj, info, defs, which) {
   if (!obj || !info.cuts) return obj;
+  if (info.kind === 'curve') return obj; // a curve is trimmed along its parameter as it's built
   for (const c of info.cuts) {
     if (!which(c)) continue;
     if (info.kind === 'point') {
@@ -2190,7 +2216,7 @@ function applyCuts(obj, info, defs, which) {
       disposeObj(obj); info.note = `the point isn't in ${c.what}, so nothing is left`; info.quiet = true;
       return new THREE.Group();
     }
-    obj = trimBy(obj, c.at(defs), !!info.dim2);
+    obj = trimBy(obj, c.at(defs), c.rim);
   }
   return obj;
 }
@@ -2199,8 +2225,8 @@ function applyCuts(obj, info, defs, which) {
 function buildSetObject(info, defs, color, row, ghost) {
   const build = BUILDERS[info.kind];
   if (ghost) {
-    const orig = info.vec0 ? Object.assign({}, info, { vec: info.vec0 }) : info;
-    return applyCuts(applyRestrict(build(orig, defs, color, row, true), orig, defs), info, defs, c => c.pre);
+    const orig = Object.assign({}, info, info.vec0 ? { vec: info.vec0 } : {}, info.cuts ? { cuts: info.cuts.filter(c => c.pre) } : {});
+    return applyCuts(applyRestrict(build(orig, defs, color, row, true), orig, defs), orig, defs, () => true);
   }
   let o = applyMap(applyRestrict(build(info, defs, color, row), info, defs), info, defs);
   const maps = info.fmaps || [], at = k => c => c.stage === k;
@@ -2212,50 +2238,118 @@ function buildSetObject(info, defs, color, row, ghost) {
     k = j;
   }
   if (info.lifted) liftLook(o, color);
-  if (info.paint) o = applyPaint(o, info, defs, row);
+  if (info.kind === 'xpoints') countDots(o, info);
+  if (info.paint && o && hasGeometry(o)) { const said = info.note; o = applyPaint(o, info, defs, row); if (said) info.note = [said, info.note].filter(Boolean).join(' · '); }
   return o;
 }
 // A ∪ B when the pieces can't be joined into one solid: each piece drawn as itself.
 function buildSetGroup(info, defs, color, row, ghost) {
-  const grp = new THREE.Group(), warns = [], notes = [];
+  const grp = new THREE.Group(), warns = [], notes = [], legends = [];
+  let pts = 0, out = 0, anyPts = false;
   for (const m of info.members) {
     if (ghost && !m.mapped) continue; // Show both: the "before" of the pieces that were moved
-    m.warn = m.note = ''; m.legend = null; m.quiet = false;
+    m.warn = m.note = m.noteBase = ''; m.legend = null; m.quiet = false; m.ptCount = undefined;
     const o = buildSetObject(m, defs, color, row, ghost);
     if (o) grp.add(o);
     if (m.warn) warns.push(m.warn);
-    if (m.note) notes.push(m.note);
-    if (m.legend && !info.legend) info.legend = m.legend;
+    if (m.ptCount !== undefined) { pts += m.ptCount; out += m.ptOutside || 0; anyPts = true; if (m.noteBase) notes.push(m.noteBase); } // points are counted together
+    else if (m.note) notes.push(m.note);
+    if (m.legend) legends.push(m.legend);
   }
+  if (anyPts) notes.push(pts ? `${pts} point${pts > 1 ? 's' : ''}${out ? ` (and ${out} outside the graph box)` : ''}` : 'the pieces with points have none here');
+  info.legend = legends[0] || null;
+  if (legends.length > 1) notes.push(`the legend shows ${greek(legends[0].name)}; the other colours aren't in it`);
   info.warn = [...new Set(warns)].join(' ');
   info.note = [...new Set(notes)].join(' · ');
   info.quiet = !hasGeometry(grp) && info.members.every(m => m.quiet);
   return grp;
 }
+// Moves p onto g = 0 (a few Newton steps along ∇g); p itself if that goes wrong or wanders more than far.
+function onto(g, p, far) {
+  let q = p;
+  for (let it = 0; it < 4; it++) {
+    const g0 = g(q[0], q[1], q[2]), d = 1e-6 * Math.max(1, Math.hypot(...q));
+    const gr = [0, 1, 2].map(k => { const r = q.slice(); r[k] += d; return (g(r[0], r[1], r[2]) - g0) / d; }), n2 = gr[0] ** 2 + gr[1] ** 2 + gr[2] ** 2;
+    if (!Number.isFinite(g0) || !(n2 > 0)) return p;
+    if (g0 === 0) break;
+    q = q.map((x, k) => x - g0 * gr[k] / n2);
+  }
+  return Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < far ? q : p;
+}
+// A point where f1 = f2 = 0 in space, from P: the shortest Newton step onto both each time. null near a
+// tangency (the two normals line up) or if it fails.
+function polish3(f1, f2, P, L) {
+  const p = P.slice(), d = L * 1e-7;
+  const grad = (f, q) => [0, 1, 2].map(k => { const a = q.slice(), b = q.slice(); a[k] += d; b[k] -= d; return (f(a[0], a[1], a[2]) - f(b[0], b[1], b[2])) / (2 * d); });
+  for (let it = 0; it < 8; it++) {
+    const a = f1(p[0], p[1], p[2]), b = f2(p[0], p[1], p[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    if (a === 0 && b === 0) break;
+    const ga = grad(f1, p), gb = grad(f2, p), dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    const m11 = dot(ga, ga), m12 = dot(ga, gb), m22 = dot(gb, gb), det = m11 * m22 - m12 * m12;
+    if (!(det > 1e-12 * m11 * m22)) return null;
+    const y1 = (-a * m22 + b * m12) / det, y2 = (a * m12 - b * m11) / det, st = [0, 1, 2].map(k => y1 * ga[k] + y2 * gb[k]);
+    for (let k = 0; k < 3; k++) p[k] += st[k];
+    if (Math.hypot(...st) < L * 1e-14) break;
+  }
+  return p.every(Number.isFinite) ? p : null;
+}
+// Of two implicit surfaces, is a cheaper to march than b (fewer cells of a coarse grid cross it)?
+function fewerCells(a, b, defs) {
+  const box = GEN.box, n = 14, cells = X => {
+    const g = zeroAt(X, defs), M = n + 1, V = new Float64Array(M * M * M), h = 2 * box.L / n;
+    for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) V[i + M * (j + M * k)] = g(box.c[0] - box.L + i * h, box.c[1] - box.L + j * h, box.c[2] - box.L + k * h);
+    let c = 0;
+    for (let k = 0; k < n; k++) for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      let neg = 0, pos = 0;
+      for (const o of CORNER) { const v = V[i + o[0] + M * (j + o[1] + M * (k + o[2]))]; if (v < 0) neg++; else if (v >= 0) pos++; }
+      if (neg && pos) c++;
+    }
+    return c;
+  };
+  return cells(a) < 0.7 * cells(b);
+}
 // Where two surfaces meet: build one (with its trims and maps), then on each of its triangles find where
-// the other's equation changes sign, and join those points.
+// the other's equation changes sign, and join those points. Where the surfaces coincide, that part of the
+// surface itself is the answer; where they only touch along a line, the line.
 function buildXCurve(info, defs, color, row) {
-  const M = Object.assign({}, info.mesh, { paint: null, warn: '', note: '' }), Z = info.zero, L = state.L;
-  const src = buildSetObject(M, defs, color, row);
-  if (M.warn) info.warn = M.warn;
+  let M = info.mesh, Z = info.zero;
+  if (M.kind === 'implicit' && Z.kind === 'implicit' && hasZero(M) && fewerCells(Z, M, defs)) [M, Z] = [Z, M]; // march the simpler one
+  const Mc = Object.assign({}, M, { paint: null, warn: '', note: '' }), L = state.L;
+  const src = buildSetObject(Mc, defs, color, row);
+  if (Mc.warn) info.warn = Mc.warn;
   if (!src) return null;
-  const g = zeroAt(Z, defs), ex = extrasAt(Z, defs), segs = [], seen = new Set(), probe = [];
+  const g = zeroAt(Z, defs), ex = extrasAt(Z, defs), gM = hasZero(M) ? zeroAt(M, defs) : null;
+  const d = L * 1e-4, tol = L * 1e-5, cell = 2 * L / Math.min(GEN.iso, GEN.grid), snap = v => (Math.abs(v) < L * 1e-12 ? 0 : v);
+  const onM = gM ? p => onto(gM, p, cell) : p => p; // a marched mesh sits a little off its surface
+  const distZ = p => distEst(g, onM(p), d);
+  const parts = [], seen = new Set(), probe = [];
   src.traverse(c => {
     if (!c.isMesh || c.isInstancedMesh || c.isLineSegments2 || !c.geometry || seen.has(c.geometry) || !c.geometry.attributes.position) return;
     seen.add(c.geometry);
     const P = c.geometry.attributes.position.array, I = c.geometry.index ? c.geometry.index.array : null, n = P.length / 3;
-    const V = new Float64Array(n), vp = i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
-    for (let i = 0; i < n; i++) V[i] = g(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
-    for (let i = 0, st = Math.max(1, Math.floor(n / 150)); i < n; i += st) probe.push(vp(i));
+    const used = I ? [...new Set(I)] : Array.from({ length: n }, (_, i) => i); // a grid mesh keeps unused vertices at 0
+    parts.push({ P, I, n, used });
+    for (let i = 0, st = Math.max(1, Math.floor(used.length / 150)); i < used.length; i += st) probe.push([P[used[i] * 3], P[used[i] * 3 + 1], P[used[i] * 3 + 2]]);
+  });
+  const share = probe.length ? probe.filter(p => distZ(p) < tol).length / probe.length : 0;
+  if (share >= 0.9) { // the same surface twice (or one lying in the other)
+    info.note = 'the two surfaces are the same here, so this is the surface itself'; info.shape = 'a surface';
+    return ex ? trimBy(src, ex) : src;
+  }
+  const partial = share >= 0.04, segs = [], zeroEdges = new Set();
+  for (const { P, I, n, used } of parts) {
+    const V = new Float64Array(n), on = partial ? new Uint8Array(n) : null, vp = i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
+    for (const i of used) { V[i] = snap(g(P[i * 3], P[i * 3 + 1], P[i * 3 + 2])); if (on && distZ(vp(i)) < tol) on[i] = 1; }
     const cache = new Map();
     const cross = (a, b) => {
       const key = a < b ? a * n + b : b * n + a;
       if (cache.has(key)) return cache.get(key);
       let p = null;
       const fa = V[a], fb = V[b];
-      if (Number.isFinite(fa) && Number.isFinite(fb) && (fa < 0) !== (fb < 0)) {
+      if (!(on && (on[a] || on[b])) && Number.isFinite(fa) && Number.isFinite(fb) && (fa < 0) !== (fb < 0)) {
         const A = vp(a), B = vp(b), at = u => A.map((q, k) => q + (B[k] - q) * u), u = realZero(q => g(...at(q)), fa, fb, 24);
-        if (u >= 0) p = at(u);
+        if (u >= 0) { p = at(u); const q = gM && polish3(gM, g, p, L); if (q && Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < cell) p = q; } // onto both surfaces
       }
       cache.set(key, p);
       return p;
@@ -2264,86 +2358,126 @@ function buildXCurve(info, defs, color, row) {
     for (let t = 0; t + 2 < nt; t += 3) {
       const id = I ? [I[t], I[t + 1], I[t + 2]] : [t, t + 1, t + 2], pts = [];
       for (let e = 0; e < 3; e++) { const p = cross(id[e], id[(e + 1) % 3]); if (p) pts.push(p); }
-      if (pts.length === 2) segs.push(...pts[0], ...pts[1]);
+      if (pts.length === 2) { segs.push(...pts[0], ...pts[1]); continue; }
+      if (on || pts.length) continue;
+      for (let e = 0; e < 3; e++) { // touching along a line: an edge lying on the other surface, the triangle on one side of it
+        const a = id[e], b = id[(e + 1) % 3], c = id[(e + 2) % 3], key = a < b ? a * n + b : b * n + a;
+        if (V[a] === 0 && V[b] === 0 && V[c] > 0 && !zeroEdges.has(key)) { zeroEdges.add(key); segs.push(...vp(a), ...vp(b)); }
+      }
     }
-  });
-  // the same surface twice (or one lying in the other): the intersection is the surface itself
-  const on = probe.filter(p => distEst(g, p, L * 1e-4) < L * 1e-5).length;
-  if (probe.length && on >= 0.9 * probe.length) { info.note = 'the two surfaces are the same here, so this is the surface itself'; return ex ? trimBy(src, ex) : src; }
-  disposeObj(src);
+  }
   const grp = new THREE.Group();
-  if (!segs.length) { info.note = "the surfaces don't meet inside the graph box"; info.quiet = true; return grp; }
-  grp.add(fatLines(segs, color, 3, GEN.planes));
-  return ex ? trimBy(grp, ex) : grp;
+  if (partial) { // part shared: that part of the surface, and the curve where the rest crosses
+    info.note = 'part of the two surfaces is shared, so that part is drawn as a surface'; info.shape = 'a surface and a curve';
+    grp.add(trimBy(src, p => { const e = ex ? ex(...p) : -1; return e > 0 ? e : distZ(p) - tol; }));
+  } else disposeObj(src);
+  if (!segs.length && !partial) {
+    const close = probe.some(p => distZ(p) < cell);
+    info.note = close ? "the surfaces touch or come very close, but don't cross here — raise Resolution to look closer" : "the surfaces don't meet inside the graph box";
+    info.quiet = true;
+    return grp;
+  }
+  if (segs.length) grp.add(ex ? trimBy(fatLines(segs, color, 3, GEN.planes), ex) : fatLines(segs, color, 3, GEN.planes));
+  return grp;
 }
 // Where a curve meets a surface (or, in the plane, a curve given by an equation): sign changes of the
-// equation along the curve, made exact by bisection. Drawn as dots.
+// equation along the curve, made exact by bisection, plus places where the curve only touches it. Drawn as
+// dots. Where the curve lies on the surface, that part of the curve is the answer.
 function buildXPoints(info, defs, color, row) {
-  const C = info.curve, Z = info.zero, L = state.L, g = zeroAt(Z, defs), ex = extrasAt(Z, defs), d = L * 1e-4;
-  const found = [], probe = [];
+  const C = info.curve, Z = info.zero, L = state.L, g = zeroAt(Z, defs), ex = extrasAt(Z, defs), d = L * 1e-4, tol = L * 1e-5;
+  const found = [], grp = new THREE.Group();
+  let probe = [], onPart = null;
   const add = P => { if (!ex || ex(P[0], P[1], P[2]) <= 0) found.push(P); };
+  const exCut = ex ? [{ at: () => ex, vec: C.vec, stage: 0 }] : [];
   if (C.kind === 'curve') { // its parametrisation: exact points
     const p = C.params[0], [t0, t1] = paramRange(row, p, defs, C), N = Q().curve * 2, s = Object.assign({}, defs);
-    const keep = (C.cuts || []).map(c => c.at(defs));
-    const at = t => { s[p] = t; const P = C.vec(s); return isArr(P) && P.every(Number.isFinite) ? P : null; };
+    const keeps = (C.cuts || []).map(c => [c.at(defs), c.vec]); // its own trims, made where it was trimmed
+    const inC = () => keeps.every(([h, v]) => { const P = v(s); return isArr(P) && h(P[0], P[1], P[2]) <= 0; });
+    const at = t => { s[p] = t; const P = C.vec(s); return isArr(P) && P.every(Number.isFinite) && inC() ? P : null; };
     const val = t => { const P = at(t); return P ? g(P[0], P[1], P[2]) : NaN; };
-    const put = t => { const P = at(t); if (P && keep.every(h => h(...P) <= 0)) add(P); };
+    const put = t => { const P = at(t); if (P) add(P); };
     const onIt = t => { const P = at(t); return !!P && distEst(g, P, d) < L * 1e-9; };
     const ts = Array.from({ length: N + 1 }, (_, i) => t0 + (t1 - t0) * i / N), vs = ts.map(val);
-    if (onIt(t0)) put(t0); // a crossing right at an end, like t = 0 on the x-axis
-    if (onIt(t1)) put(t1);
-    for (let i = 1; i <= N; i++) {
-      const ta = ts[i - 1], tb = ts[i], va = vs[i - 1], vb = vs[i];
-      if (i % 8 === 0) { const P = at(tb); if (P && keep.every(h => h(...P) <= 0)) probe.push(P); }
-      if (!Number.isFinite(va) || !Number.isFinite(vb)) continue;
-      if ((va < 0) !== (vb < 0)) { const u = realZero(q => val(ta + (tb - ta) * q), va, vb, 50); if (u >= 0) put(ta + (tb - ta) * u); continue; }
-      // touching without crossing (a line tangent to a circle): |g| dips to 0 between samples
-      const vc = vs[i + 1];
-      if (i < N && Number.isFinite(vc) && (vc < 0) === (vb < 0) && Math.abs(vb) < Math.abs(va) && Math.abs(vb) <= Math.abs(vc)) {
-        let a = ta, b = ts[i + 1];
+    const on = ts.map((t, i) => (i % 8 === 0 || i === N) && Number.isFinite(vs[i]) ? distEst(g, at(t), d) < tol : false);
+    probe = on.filter((x, i) => i % 8 === 0 && Number.isFinite(vs[i]));
+    const share = probe.length ? probe.filter(Boolean).length / probe.length : 0;
+    if (share >= 0.04) onPart = { share, build: () => buildSetObject(Object.assign({}, C, { paint: null, cuts: (C.cuts || []).concat(exCut, share < 0.9 ? [{ at: () => (x, y, z) => distEst(g, [x, y, z], d) - tol, vec: C.vec, stage: 0 }] : []) }), defs, color, row) };
+    if (!onPart || onPart.share < 0.9) {
+      const lying = i => onPart && distEst(g, at(ts[i]), d) < tol; // along the part on the surface, signs are noise
+      if (onIt(t0)) put(t0); // a crossing right at an end, like t = 0 on the x-axis
+      if (onIt(t1)) put(t1);
+      const touch = (a, b) => { // |g| dips to 0 between a and b without a sign change: golden-section search
         for (let it = 0; it < 60; it++) { const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618; if (Math.abs(val(m1)) < Math.abs(val(m2))) b = m2; else a = m1; }
         if (onIt((a + b) / 2)) put((a + b) / 2);
+      };
+      for (let i = 1; i <= N; i++) {
+        const ta = ts[i - 1], tb = ts[i], va = vs[i - 1], vb = vs[i];
+        if (!Number.isFinite(va) || !Number.isFinite(vb)) continue;
+        if ((va < 0) !== (vb < 0)) { if (!(onPart && (lying(i - 1) || lying(i)))) { const u = realZero(q => val(ta + (tb - ta) * q), va, vb, 50); if (u >= 0) put(ta + (tb - ta) * u); } continue; }
+        if (onPart) continue;
+        if (i === 1 && Math.abs(va) < Math.abs(vb)) touch(ta, tb); // the |g| dip may sit in the first or last step
+        if (i === N && Math.abs(vb) < Math.abs(va)) touch(ta, tb);
+        const vc = vs[i + 1];
+        if (i < N && Number.isFinite(vc) && (vc < 0) === (vb < 0) && Math.abs(vb) < Math.abs(va) && Math.abs(vb) <= Math.abs(vc)) touch(ta, ts[i + 1]);
       }
     }
   } else { // drawn as line segments (where two surfaces meet, a curve of the plane): along each segment
     const src = buildSetObject(Object.assign({}, C, { paint: null, warn: '', note: '' }), defs, color, row);
     // two curves of the plane given by equations: solve both together, which makes the points exact and
     // finds where they only touch (y = x² and y = 0), from wherever the drawn curve comes close
-    const gC = info.dim2 && hasZero(C) ? zeroAt(C, defs) : null, exC = gC && extrasAt(C, defs), near = new Map(), cell = 2 * L / 150;
+    const gC = info.planar && hasZero(C) ? zeroAt(C, defs) : null, exC = gC && extrasAt(C, defs), near = new Map(), cell = 2 * L / 150;
     const solved = P => { const q = gC && polish2(gC, g, P, L); return q && Math.hypot(q[0] - P[0], q[1] - P[1]) < 3 * cell && (!exC || exC(...q) <= 0) ? q : null; };
+    const onC = gC ? P => onto(gC, P, cell) : P => P, snap = v => (Math.abs(v) < L * 1e-12 ? 0 : v), segs = [];
     if (src) src.traverse(c => {
       const A = !c.geometry ? null : c.geometry.isLineSegmentsGeometry ? c.geometry.attributes.instanceStart.data.array : c.isLineSegments ? c.geometry.attributes.position.array : null;
-      if (!A) return;
-      for (let i = 0; i + 5 < A.length; i += 6) {
-        const a = [A[i], A[i + 1], A[i + 2]], b = [A[i + 3], A[i + 4], A[i + 5]], va = g(...a), vb = g(...b);
-        if (i % 48 === 0) probe.push(a);
-        if (gC && distEst(g, a, d) < 2 * cell) near.set(Math.round(a[0] / cell) + ',' + Math.round(a[1] / cell), a);
-        if (!Number.isFinite(va) || !Number.isFinite(vb) || (va < 0) === (vb < 0)) continue;
+      if (A) segs.push(A);
+    });
+    for (const A of segs) for (let i = 0; i + 5 < A.length; i += 48) probe.push(distEst(g, onC([A[i], A[i + 1], A[i + 2]]), d) < tol);
+    const share = probe.length ? probe.filter(Boolean).length / probe.length : 0;
+    if (share >= 0.9) onPart = { share, build: () => (src && ex ? trimBy(src, ex) : src) };
+    else {
+      const lying = share >= 0.04 ? P => distEst(g, onC(P), d) < tol : null; // part of it on the other: that part, and crossings of the rest
+      if (lying && src) onPart = { share, build: () => trimBy(src, P => { const e = ex ? ex(...P) : -1; return e > 0 ? e : distEst(g, onC(P), d) - tol; }) };
+      else if (src) disposeObj(src);
+      for (const A of segs) for (let i = 0; i + 5 < A.length; i += 6) {
+        const a = [A[i], A[i + 1], A[i + 2]], b = [A[i + 3], A[i + 4], A[i + 5]], va = snap(g(...a)), vb = snap(g(...b));
+        if (gC && !lying && distEst(g, a, d) < 2 * cell) near.set(Math.round(a[0] / cell) + ',' + Math.round(a[1] / cell), a);
+        if (!Number.isFinite(va) || !Number.isFinite(vb) || (va < 0) === (vb < 0) || (lying && (lying(a) || lying(b)))) continue;
         const at = u => a.map((q, k) => q + (b[k] - q) * u), u = realZero(q => g(...at(q)), va, vb, 50);
         if (u >= 0) add(solved(at(u)) || at(u));
       }
-    });
-    if (src) disposeObj(src);
-    if (near.size <= 400) for (const P of near.values()) { const q = solved(P); if (q && distEst(gC, q, d) < L * 1e-9 && distEst(g, q, d) < L * 1e-9) add(q); }
+      if (near.size <= 400) for (const P of near.values()) { const q = solved(P); if (q && distEst(gC, q, d) < L * 1e-9 && distEst(g, q, d) < L * 1e-9) add(q); }
+    }
   }
-  // the curve lies on the surface: the intersection is the curve itself
-  if (probe.length >= 4 && probe.filter(P => distEst(g, P, d) < L * 1e-5).length >= 0.9 * probe.length) {
-    info.note = `the curve lies on the ${info.dim2 ? 'other curve' : 'surface'}, so this is the curve itself`;
-    const o = buildSetObject(Object.assign({}, C, { paint: null }), defs, color, row);
-    return ex ? trimBy(o, ex) : o;
+  const what = info.planar ? 'other curve' : 'surface';
+  if (onPart) {
+    grp.add(onPart.build());
+    info.shape = onPart.share >= 0.9 ? 'a curve' : 'a curve and points';
+    info.noteBase = onPart.share >= 0.9 ? `the curve lies on the ${what}, so this is the curve itself` : `part of the curve lies on the ${what}, so that part is drawn`;
+    if (onPart.share >= 0.9) { info.note = info.noteBase; return grp; }
   }
   const pts = [];
-  for (const P of found) if (!pts.some(q => Math.hypot(P[0] - q[0], P[1] - q[1], P[2] - q[2]) < L * 1e-6)) pts.push(P);
+  for (const P of found) if (!pts.some(q => Math.hypot(P[0] - q[0], P[1] - q[1], P[2] - q[2]) < L * 1e-4)) pts.push(P);
   const box = GEN.box, inBox = P => GEN.fly || P.every((v, k) => Math.abs(v - box.c[k]) <= box.L * 1.0001);
-  const shown = pts.filter(inBox), outside = pts.length - shown.length, grp = new THREE.Group();
-  if (!shown.length) { info.note = `they don't meet${outside ? ' inside the graph box' : ''}`; info.quiet = true; return grp; }
-  info.note = `${shown.length} point${shown.length > 1 ? 's' : ''}${outside ? ` (and ${outside} outside the graph box)` : ''}`;
+  const shown = pts.filter(inBox);
+  info.ptOutside = pts.length - shown.length;
+  if (!shown.length) return grp;
   const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(L * 0.03, 20, 14), new THREE.MeshPhongMaterial({ color, shininess: 50, clippingPlanes: GEN.planes }), shown.length);
   const m4 = new THREE.Matrix4();
   shown.forEach((P, i) => mesh.setMatrixAt(i, m4.makeTranslation(P[0], P[1], P[2])));
   mesh.frustumCulled = false; // the dots spread far from the mesh's own origin
   grp.add(mesh);
   return grp;
+}
+// The note for a set of points, once its trims and maps have had their say: how many dots there are.
+function countDots(obj, info) {
+  let n = 0;
+  if (obj) obj.traverse(c => { if (c.isInstancedMesh) n += c.count; });
+  info.ptCount = n;
+  const out = info.ptOutside || 0, parts = [info.noteBase || ''];
+  if (n) parts.push(`${n} point${n > 1 ? 's' : ''}${out ? ` (and ${out} outside the graph box)` : ''}`);
+  else if (!info.noteBase) { parts.push(out ? "they don't meet inside the graph box" : "they don't meet"); info.quiet = true; }
+  info.note = parts.filter(Boolean).join(' · ');
 }
 // "Make a Cartesian copy": add the set again in Cartesian coordinates and point the function at it.
 function useCartesianCopy(row, fix) {
@@ -2357,15 +2491,21 @@ function useCartesianCopy(row, fix) {
     const [b, sub] = fix.refName.split('_'), isGreek = GREEK_VARS.includes(b) || b in GREEK; // a Greek name is written \alpha
     const re = new RegExp(`${isGreek ? `\\\\${b}` : `(?<![A-Za-z\\\\])${b}`}${sub ? `_(?:\\{${sub}\\}|${sub})` : ''}(?![A-Za-z0-9_])`, 'g');
     latex = latex.replace(re, texName(name));
-  } else { // replace the set written inside the brackets
-    const i = latex.indexOf('\\left\\{');
-    let d = 0, j = i;
-    for (; j < latex.length && i >= 0; j++) {
-      if (latex.startsWith('\\left\\{', j)) d++;
-      else if (latex.startsWith('\\right\\}', j) && --d === 0) break;
+  } else { // replace the set written inside the brackets: the one the message is about (A ∪ f({…}) has two)
+    const groups = [];
+    for (let i = latex.indexOf('\\left\\{'); i >= 0;) {
+      let d = 0, j = i;
+      for (; j < latex.length; j++) {
+        if (latex.startsWith('\\left\\{', j)) d++;
+        else if (latex.startsWith('\\right\\}', j) && --d === 0) break;
+      }
+      if (j >= latex.length) break;
+      groups.push([i, j + '\\right\\}'.length]);
+      i = latex.indexOf('\\left\\{', j);
     }
-    if (i < 0 || j >= latex.length) throw new Error('could not find the set on this line');
-    latex = latex.slice(0, i) + texName(name) + latex.slice(j + '\\right\\}'.length);
+    const bare = t => t.replace(/\s+/g, ''), g = groups.find(([a, b]) => bare(latexToText(latex.slice(a, b))) === bare(fix.litText || '')) || groups[0];
+    if (!g) throw new Error('could not find the set on this line');
+    latex = latex.slice(0, g[0]) + texName(name) + latex.slice(g[1]);
   }
   const nr = fix.setRow && state.rows.includes(fix.setRow) ? addRow(`${texName(name)}=${tex}`, { after: fix.setRow }) : addRow(`${texName(name)}=${tex}`, { before: row });
   setRowLatex(row, latex);
@@ -2450,7 +2590,7 @@ function applyPaint(obj, info, defs, row) {
     return obj;
   }
   // exact values from the set's own parametrisation, when it has one, to judge whether f is constant on it
-  const exact = info.vec && (info.kind === 'curve' || info.kind === 'psurface') && !info.cuts && !info.fmaps ? exactValues(info, defs, row, f) : null; // a trimmed or moved one isn't its parametrisation any more
+  const exact = info.vec && (info.kind === 'curve' || (info.kind === 'psurface' && !info.cuts)) && !info.fmaps ? exactValues(info, defs, row, f) : null; // a trimmed or moved surface isn't its parametrisation any more
   const [lo0, mid, hi0] = quantiles(finite, 0.02, 0.5, 0.98), spread = hi0 - lo0;
   let mn = Infinity, mx = -Infinity;
   for (const x of finite) { if (x < mn) mn = x; if (x > mx) mx = x; }
@@ -2572,11 +2712,12 @@ function projector(info, defs) {
 }
 // f at points of a parametrised set (curve or surface), straight from its parametrisation in full precision.
 function exactValues(info, defs, row, f) {
-  const sc = Object.assign({}, defs), ps = info.params, out = [];
+  const sc = Object.assign({}, defs), ps = info.params, out = [], keeps = (info.cuts || []).map(c => [c.at(defs), c.vec]);
   const R = ps.map(p => paramRange(row, p, defs, info)), n = ps.length === 1 ? 400 : 40;
   for (let i = 0; i <= n; i++) for (let j = 0; j <= (ps.length > 1 ? n : 0); j++) {
     sc[ps[0]] = R[0][0] + (R[0][1] - R[0][0]) * i / n;
     if (ps.length > 1) sc[ps[1]] = R[1][0] + (R[1][1] - R[1][0]) * j / n;
+    if (!keeps.every(([h, v]) => { const Q0 = v(sc); return isArr(Q0) && h(Q0[0], Q0[1], Q0[2]) <= 0; })) continue; // trimmed away
     const P = info.vec(sc), x = isArr(P) ? f(P) : NaN;
     if (Number.isFinite(x) && Math.abs(x) < 1e12) out.push(x);
   }
@@ -3021,13 +3162,25 @@ function buildRegion(info, defs, color) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setIndex(indices); setNormals(geo, normals);
     const NA = geo.attributes.normal.array, nv = positions.length / 3, hv = new Float64Array(nv), path = pathTo(E.tree, k);
+    const sib = []; // the other sides met on the way down: [node, this side's index, theirs]
+    for (const [node, ci] of path) for (let j = 0; j < node.kids.length; j++) if (j !== ci) sib.push([node, ci, j]);
+    const sv = new Float64Array(sib.length), d = h * 0.25, gv = [0, 0, 0];
+    const sibAt = (q, P) => { G(P[0], P[1], P[2]); return treeVal(sib[q][0].kids[sib[q][2]], vals); };
     for (let i = 0; i < nv; i++) {
-      const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
-      G(x, y, z);
-      let mx = boxSdf(x, y, z);
-      for (const [node, ci] of path) for (let j = 0; j < node.kids.length; j++) {
-        if (j === ci) continue;
-        const v = treeVal(node.kids[j], vals), t = node.op === 'max' ? v : -v;
+      const P = [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]], N = [NA[i * 3], NA[i * 3 + 1], NA[i * 3 + 2]];
+      G(P[0], P[1], P[2]);
+      for (let q = 0; q < sib.length; q++) sv[q] = treeVal(sib[q][0].kids[sib[q][2]], vals);
+      let mx = boxSdf(P[0], P[1], P[2]);
+      for (let q = 0; q < sib.length; q++) {
+        const [node, ci, j] = sib[q], v = sv[q];
+        let t = node.op === 'max' ? v : -v;
+        // the other side's boundary runs through here too: the same wall written twice (draw it once, for
+        // the first side) or two solids glued face to face (no wall: it's inside a union, or has no volume)
+        if (Math.abs(v) < 1e3 && Math.abs(v) < 0.1 * h * Math.abs(sibAt(q, P.map((c, a) => c + d * N[a])) - v) / d) { // close for its slope
+          for (let a = 0; a < 3; a++) { const p1 = P.slice(), p2 = P.slice(); p1[a] += d; p2[a] -= d; gv[a] = (sibAt(q, p1) - sibAt(q, p2)) / (2 * d); }
+          const gl = Math.hypot(gv[0], gv[1], gv[2]), cos = gl > 0 ? (gv[0] * N[0] + gv[1] * N[1] + gv[2] * N[2]) / gl : 0;
+          if (gl > 0 && Math.abs(v) < 0.1 * h * gl) { if (cos > 0.95) t = j < ci ? 1 : -Infinity; else if (cos < -0.95) t = 1; }
+        }
         if (t > mx) mx = t;
       }
       hv[i] = mx;
@@ -3103,11 +3256,25 @@ function evalConst(str, defs) {
 function buildCurve(info, defs, color, row) {
   const L = state.L, p = info.params[0], [t0, t1] = paramRange(row, p, defs, info), N = Q().curve;
   const s = Object.assign({}, defs), segs = []; let cur = [], prev = null;
+  // trims (C ∩ S) are made on the parameter, each where it was made (f(C ∩ S) trims C, then maps it),
+  // so the tube is built around what's left and stays round
+  const keeps = (info.cuts || []).map(c => [c.at(defs), c.vec]);
+  const inside = t => { s[p] = t; return keeps.every(([h, v]) => { const P = v(s); return isArr(P) && h(P[0], P[1], P[2]) <= 0; }); };
+  const point = t => { s[p] = t; const P = info.vec(s); return isArr(P) && [P[0], P[1], P[2]].every(q => Number.isFinite(q) && Math.abs(q) < 1e4) ? new THREE.Vector3(P[0], P[1], P[2]) : null; };
+  let tPrev = t0, inPrev = true;
   for (let i = 0; i <= N; i++) {
-    s[p] = t0 + (t1 - t0) * i / N;
-    const P = info.vec(s), x = P[0], y = P[1], z = P[2];
-    if (![x, y, z].every(q => Number.isFinite(q) && Math.abs(q) < 1e4)) { if (cur.length) segs.push(cur); cur = []; prev = null; continue; }
-    const pt = new THREE.Vector3(x, y, z);
+    const t = t0 + (t1 - t0) * i / N, ins = !keeps.length || inside(t);
+    if (i > 0 && ins !== inPrev) { // the edge of a trim: find it, and end or start a piece there
+      let a = tPrev, b = t;
+      for (let it = 0; it < 30; it++) { const m = (a + b) / 2; if (inside(m) === inPrev) a = m; else b = m; }
+      const e = point(inPrev ? a : b);
+      if (inPrev) { if (e && prev) cur.push(e); if (cur.length) segs.push(cur); cur = []; prev = null; }
+      else if (e) { cur = [e]; prev = e; }
+    }
+    tPrev = t; inPrev = ins;
+    if (!ins) continue;
+    const pt = point(t);
+    if (!pt) { if (cur.length) segs.push(cur); cur = []; prev = null; continue; }
     if (prev && pt.distanceTo(prev) > L * 0.6) { segs.push(cur); cur = []; }
     cur.push(pt); prev = pt;
   }
@@ -4024,8 +4191,8 @@ function renderRow(row) {
   else if (k === 'matrix') chipHTML = `<b>Matrix</b><span>${info.r} × ${info.c}</span>`;
   else if (k === 'plane2d') chipHTML = `<b>${info.lifted ? 'Graph over a planar set' : info.mapped && !info.dim2 ? 'Mapped planar set' : 'Planar set'}</b><span>${info.form}</span>`;
   else if (k === 'setgroup') chipHTML = `<b>Union</b><span>${info.members.length} pieces, drawn together</span>`;
-  else if (k === 'xcurve') chipHTML = '<b>Intersection</b><span>a curve</span>';
-  else if (k === 'xpoints') chipHTML = '<b>Intersection</b><span>points</span>';
+  else if (k === 'xcurve') chipHTML = `<b>Intersection</b><span>${row.obj && row.buildShape || 'a curve'}</span>`; // the same surface twice is a surface
+  else if (k === 'xpoints') chipHTML = `<b>Intersection</b><span>${row.obj && row.buildShape || 'points'}</span>`;
   if (row.matrix) {
     const bad = new Set((info.bad || []).map(([i, j]) => i * 100 + j)), C = row.matrix.cells[0].length;
     el.querySelectorAll('.mcell').forEach((c, n) => c.classList.toggle('bad', bad.has(Math.floor(n / C) * 100 + n % C)));
@@ -4123,6 +4290,10 @@ function update() {
       if (!SETDEFS.has(name)) SETDEFS.set(name, { row: r, expr: e, text: rhs });
     }
   }
+  for (const [r, name, rhs] of cands) if (r.sdef && hasBad(r.sdef.expr)) { // every name is known now: read those lines again
+    r.sdef.expr = parseSetExpr(rhs);
+    const dd = SETDEFS.get(name); if (dd.row === r) dd.expr = r.sdef.expr;
+  }
   for (const r of state.rows) {
     if (r.matrix) continue;
     if (r.fdef) { r.rw = { s: r.text, notes: [] }; r.info = funcRowInfo(r); continue; }
@@ -4145,7 +4316,7 @@ function update() {
   for (const r of state.rows) {
     const info = r.info, strs = [];
     const curveRanges = X => { // the pieces of a union or an intersection count too
-      if (X.kind === 'curve' || X.kind === 'psurface') for (const p of X.params) strs.push(...((X.setRanges && X.setRanges[p]) || r.ranges[p] || []));
+      if (X.kind === 'curve' || X.kind === 'psurface') for (const p of X.params) strs.push(...((X.setRanges && X.setRanges[p]) || (X.ranges || r.ranges)[p] || []));
       for (const Y of [X.curve, X.mesh, X.zero, ...(X.members || [])]) if (Y) curveRanges(Y);
     };
     if (info.kind === 'func') {
@@ -4175,7 +4346,7 @@ function update() {
     if (r.info.free) for (const n of dp.fns) for (const v of USERFN.get(n).free || []) if (!r.info.free.includes(v)) r.info.free.push(v);
     const own = r.fdef ? r.fdef.name : (/^\s*([A-Za-z]+(?:_[A-Za-z0-9]+)?)\s*=(?!=)/.exec(r.text) || [])[1]; // Q = 2 clashes with Q, it doesn't use it
     for (const n of dp.fns) if (n !== own) usedFns.add(n);
-    r.depSig = JSON.stringify([[...dp.sets].map(n => SETDEFS.get(n).text), [...dp.fns].map(n => [USERFN.get(n).params, USERFN.get(n).src])]);
+    r.depSig = JSON.stringify([[...dp.sets].map(n => [SETDEFS.get(n).text, SETDEFS.get(n).row.ranges]), [...dp.fns].map(n => [USERFN.get(n).params, USERFN.get(n).src])]);
   }
   // a function used on another line is a helper: not drawn until its dot is clicked
   for (const r of state.rows) {
@@ -4215,24 +4386,25 @@ function update() {
     if (!drawable) {
       if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; r.key = null; }
       clearFly(r);
-      r.buildLegend = null; r.buildNote = '';
-    } else if (state.mode === 'fly' && CHUNKED.includes(di.kind) && !info.mapped && !info.paint && !info.cuts) { // mapped, painted and trimmed sets are drawn whole
+      r.buildLegend = null; r.buildNote = ''; r.buildShape = '';
+    } else if (state.mode === 'fly' && CHUNKED.includes(di.kind) && !info.mapped && !info.paint) { // mapped and painted sets are drawn whole
       if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; r.key = null; }
       const fkey = JSON.stringify([r.rw.s, r.depSig, info.kind, info.view, info.sys, r.override, state.conv, state.quality, state.L, r.color, info.free.map(n => defs[n])]);
       if (!r.fly || r.fly.fkey !== fkey) resetFly(r, fkey, di, Object.assign({}, defs));
-      r.buildLegend = null; r.buildNote = '';
+      r.buildLegend = null; r.buildNote = ''; r.buildShape = '';
     } else {
       clearFly(r);
       GEN = state.mode === 'fly' ? { box: B(), planes: [], grid: Q().grid, iso: Q().iso, fly: true } : genOrbit();
       r.vizSig = JSON.stringify([r.rw.s, r.depSig, info.view, state.L, state.quality]); // what auto scales and levels may persist across
-      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth, (info.kind === 'func' || !!info.paint) && state.dark, // only ramps follow the theme
+      const painted = X => !!X.paint || (X.members || []).some(painted);
+      const key = JSON.stringify([r.rw.s, r.depSig, info.kind, info.sys, r.override, state.conv, state.mode, state.L, state.quality, r.color, !!r.showBoth, (info.kind === 'func' || painted(info)) && state.dark, // only ramps follow the theme
         info.params && info.params.map(p => r.ranges[p]), info.kind === 'seq' && [r.seqRange, r.seqLine !== false],
         info.kind === 'func' && [info.view, info.rangedParams.map(p => r.franges[p]), info.levelsBox && r.flevels], info.free.map(n => defs[n])]);
       if (key !== r.key) {
         if (r.obj) { scene.remove(r.obj); disposeObj(r.obj); r.obj = null; }
         di.warn = di.note = ''; di.legend = null; di.quiet = false;
         try { r.obj = buildRowObject(r, di, defs); } catch (e) { di.warn = "Couldn't draw this."; }
-        r.buildWarn = di.warn || ''; r.buildLegend = di.legend || null; r.buildNote = di.note || '';
+        r.buildWarn = di.warn || ''; r.buildLegend = di.legend || null; r.buildNote = di.note || ''; r.buildShape = di.shape || '';
         if (r.obj) { r.obj.visible = !isHidden(r); scene.add(r.obj); }
         const empty = r.obj && !hasGeometry(r.obj);
         r.emptyWarn = (!r.obj || empty) && !di.quiet ? 'Nothing to draw inside the current range.' : ''; // quiet: the note already says why
@@ -4511,7 +4683,7 @@ function genLeaf(r, box) {
   GEN = { box, planes: leafPlanes(box), grid: Math.max(8, Math.round(Q().grid * f * q)), iso: Math.max(6, Math.round(Q().iso * f * q)), fly: true };
   const build = { explicit: buildExplicit, implicit: buildImplicit, region: buildRegion }[r.fly.info.kind];
   let o = null;
-  try { o = applyRestrict(build(r.fly.info, r.fly.defs, r.color, r), r.fly.info, r.fly.defs); } catch (e) { o = null; }
+  try { o = applyCuts(applyRestrict(build(r.fly.info, r.fly.defs, r.color, r), r.fly.info, r.fly.defs), r.fly.info, r.fly.defs, () => true); } catch (e) { o = null; }
   if (o) {
     leafBox.set(new THREE.Vector3(...box.c.map(c => c - box.L)), new THREE.Vector3(...box.c.map(c => c + box.L)));
     tmpBox.setFromObject(o);

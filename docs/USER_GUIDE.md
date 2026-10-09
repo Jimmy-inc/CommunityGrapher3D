@@ -309,7 +309,7 @@ z = 0 ∩ x = 0                          the y-axis: plain graphs work too
 (1, 0, 0) ∩ A                          the point, if it's in A
 ```
 
-∩ binds tighter than ∪, so `A ∪ B ∩ C` means `A ∪ (B ∩ C)`. Use brackets to group, like `(A ∪ B) ∩ C`.
+∩ binds tighter than ∪, so `A ∪ B ∩ C` means `A ∪ (B ∩ C)`. Use brackets to group, like `(A ∪ B) ∩ C` or `[A ∪ B] ∩ C`.
 
 What you get depends on what meets what:
 
@@ -320,14 +320,17 @@ What you get depends on what meets what:
 | surface ∩ surface | the curve where they meet |
 | curve ∩ surface | the points where they meet, with a count in the note |
 | curve ∩ curve, in the plane | the points where they meet |
-| point ∩ anything | the point, if it's in the set, otherwise nothing and a note |
+| point ∩ a solid, a surface given by an equation, or a point | the point, if it's in the set, otherwise nothing and a note |
 | anything else joined by ∪ | each piece drawn as it is, in the line's colour |
 
 - To find where two surfaces meet, at least one has to be given by an equation, like `z = x²` or `x² + y² + z² = 4`. The other can be anything, even a parametric surface. A curve has to meet a surface given by an equation. In the plane, one of two curves needs an equation.
-- If two surfaces are the same, or a curve lies on a surface, you get the surface or the curve itself, and the note says so.
-- Points where a curve only touches a surface, without crossing it, are found too. The note counts the points inside the graph box and says how many are outside it.
+- If two surfaces are the same, or a curve lies on a surface, you get the surface or the curve itself, and the note says so. If only part of them is shared, that part is drawn as a surface (or a curve), along with where the rest crosses.
+- Points where a parametrised curve only touches a surface, without crossing it, are found too, and so are touching points of two curves in the plane given by equations, like `y = x²` and `y = 0`. Surfaces that only touch along a line, like a cylinder and a plane against it, give that line when it falls on the drawn mesh; otherwise the note says they touch or come very close.
+- The note counts the points inside the graph box and says how many are outside it.
+- A parametrised curve written straight into the line, like `(cos t, sin t, t) ∩ z = 1`, uses t from 0 to 2π, and the note says so. To choose the range, write it as a set, `{(cos t, sin t, t) : t ∈ [0, 6π]}`, or name it on its own line and use its range boxes there.
 - A set in the plane can't be joined to a set in space. Write both with (x, y, z), or both with (x, y).
-- Two curves in space can't be intersected yet. A solid moved by a function or a matrix can be joined with ∪, but not intersected.
+- Two curves in space can't be intersected yet, and neither can a point and a curve or a parametric surface. A solid moved by a function or a matrix can be joined with ∪, but not intersected.
+- A solid coloured by a function is drawn as its own piece in a union, so walls inside the union show. Colour the whole union instead, like `k(A ∪ B)`.
 - Functions work on the result: `f(A ∪ B)` draws f(A) and f(B), and `f(A ∩ B)` trims first, then maps. A function that gives a number colours the result, like `k(A ∩ B)`.
 - Names can be used before the line that defines them: `C = A ∪ B` can come first.
 
@@ -564,7 +567,7 @@ A small dot marks the centre of the screen.
 
 ### How the world works
 
-- In fly mode the graph has no box. Surfaces and solids carry on in every direction.
+- In fly mode the graph has no box. Surfaces and solids carry on in every direction, and so do solids joined with ∪ or ∩ and surfaces trimmed by a solid. Other unions and intersections, like where two surfaces meet, are drawn around the origin only.
 - **Render distance** (2 to 1000, replacing the Scale slider) sets how far you can see. Distant objects fade into fog. Changing it never changes the shapes. It only decides how far out they're drawn.
 - The world is built in chunks around you, nearest and in-view first. While it builds, the legend shows *building world NN%*. Chunks far away are drawn with less detail.
 - **Reset view** puts you back at a comfortable spot near the origin.
