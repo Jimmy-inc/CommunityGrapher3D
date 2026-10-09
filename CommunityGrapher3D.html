@@ -1416,6 +1416,7 @@ function analyzePlaneSet(names, cond, userNames, hrw, condRw) {
   const clauses = splitTop(crw.s, [';', ',']).map(c => c.trim()).filter(Boolean);
   const eqs = clauses.filter(c => !/[<>]/.test(c)), ineqs = clauses.filter(c => /[<>]/.test(c));
   if (eqs.length > 1) return err('A set can have one equation — use inequalities to cut it down.');
+  if (!eqs.length && !ineqs.length) return err('Add a condition after the colon, like x² + y² ≤ 1.');
   const allowed = new Set(names);
   const checkVars = syms => {
     const bad = [...syms].filter(n => COORDS.includes(n) && !allowed.has(n));
