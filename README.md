@@ -1,6 +1,6 @@
 # CommunityGrapher3D
 
-I found desmos 3D a little annoying to use for my multivariable calc course, so I vibe coded one.
+I found desmos 3D a little annoying to use for my multivariable calc course, so I vibecoded one. Why AI? the whole point was to save time and energy.
 
 **→ Read the full [User Guide](docs/USER_GUIDE.md).**
 
