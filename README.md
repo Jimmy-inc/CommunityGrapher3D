@@ -1,6 +1,6 @@
 # CommunityGrapher3D
 
-A Desmos-style 3D graphing calculator, built for topology and multivariable calculus. Type math the way you write it, and the app works out what you mean: Cartesian, cylindrical or spherical coordinates, a surface, a solid, a curve, a set, a sequence or a plain calculation.
+I found desmos 3D a little annoying to use for my multivariable calc course, so I made my own.
 
 **→ Read the full [User Guide](docs/USER_GUIDE.md).**
 
